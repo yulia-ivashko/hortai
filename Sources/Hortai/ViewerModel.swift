@@ -66,8 +66,8 @@ final class ViewerModel: ObservableObject {
         show(target)
     }
 
-    // The title's name is being edited; the toolbar gives it more room meanwhile.
-    @Published var isRenaming = false
+    // The title's popover with name, tags and folder; the context menu's Rename… opens it too.
+    @Published var showsFilePopover = false
 
     // Renames the shown photo in place, like Finder. A name typed without an extension keeps the old one.
     func rename(to typed: String) {
@@ -98,6 +98,36 @@ final class ViewerModel: ObservableObject {
         show(target)
     }
 
+    // Writes Finder tags; the info panel reads them again.
+    func setTags(_ tags: [String]) {
+        guard let url = currentURL else { return }
+        do {
+            try (url as NSURL).setResourceValue(tags, forKey: .tagNamesKey)
+            revision += 1
+        } catch {
+            showError(String(format: L("Couldn’t change the tags of “%@”"), url.lastPathComponent))
+        }
+    }
+
+    // Moves the shown photo to another folder and follows it there; Back returns to where it was.
+    func move(to folder: URL) {
+        guard let url = currentURL, folder.standardizedFileURL != url.deletingLastPathComponent().standardizedFileURL else { return }
+        let target = folder.appending(path: url.lastPathComponent).standardizedFileURL
+        if FileManager.default.fileExists(atPath: target.path) {
+            showError(String(format: L("“%@” already has a file named “%@”."), folder.lastPathComponent, url.lastPathComponent))
+            return
+        }
+        do {
+            try FileManager.default.moveItem(at: url, to: target)
+        } catch {
+            showError(String(format: L("Couldn’t move “%@”"), url.lastPathComponent))
+            return
+        }
+        cache[target] = cache.removeValue(forKey: url)
+        ThumbnailCache.forget(url)
+        jump(to: target)
+    }
+
     // Takes a folder out of the sidebar; the first one opened can go too.
     func remove(_ folder: URL) {
         let index = currentURL.flatMap(indexOf) ?? lastIndex
@@ -125,6 +155,7 @@ final class ViewerModel: ObservableObject {
     private var here: Place { Place(folders: groups.map(\.folder), photo: currentURL) }
 
     // Opens a folder from the title's path in place of the open ones.
+    // A folder, or a photo shown in its folder.
     func jump(to folder: URL) {
         backList.append(here)
         forwardList = []

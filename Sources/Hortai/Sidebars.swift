@@ -240,16 +240,12 @@ struct ThumbnailList: View {
 // Each level of the path opens that folder; an empty folder shows its own name over its parent's path.
 struct TitleView: View {
     @ObservedObject var model: ViewerModel
-
-    @State private var editing = false
-    @State private var draft = ""
-    @State private var selection: TextSelection?
-    @FocusState private var focused: Bool
+    @State private var hovering = false
 
     var body: some View {
         if let url = model.currentURL {
             title(url.lastPathComponent, path: url.deletingLastPathComponent(), renamable: true)
-                .help(editing ? "" : url.path)
+                .help(url.path)
         } else if let folder = model.groups.first?.folder {
             title(folder.lastPathComponent, path: folder.deletingLastPathComponent())
                 .help(folder.path)
@@ -260,31 +256,24 @@ struct TitleView: View {
 
     private func title(_ name: String, path: URL, renamable: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            if editing && renamable {
-                // Like Finder: the name without its extension comes selected, Return keeps it, Esc or a click away undoes.
-                TextField("", text: $draft, selection: $selection)
-                    .textFieldStyle(.plain)
-                    .font(.headline)
-                    .focused($focused)
-                    .frame(minWidth: 180)
-                    // A field's white box and focus ring round the text, which itself stays where the name was.
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .textBackgroundColor)))
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.accentColor.opacity(0.6), lineWidth: 2))
-                    .padding(.horizontal, -4)
-                    .padding(.vertical, -1)
-                    .onSubmit { finish(save: true) }
-                    .onExitCommand { finish(save: false) }
-                    .onChange(of: focused) { _, now in if !now { finish(save: false) } }
-                    .onChange(of: model.currentURL) { _, _ in finish(save: false) }
-            } else {
+            // Like Preview's document title: a click opens name, tags and place in a popover; the chevron shows on hover.
+            HStack(spacing: 3) {
                 Text(name)
                     .font(.headline)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .contentShape(Rectangle())
-                    .onTapGesture { if renamable { startRenaming(name) } }
+                if renamable {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .opacity(hovering || model.showsFilePopover ? 1 : 0)
+                }
+            }
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .onTapGesture { if renamable { model.showsFilePopover = true } }
+            .popover(isPresented: renamable ? $model.showsFilePopover : .constant(false), arrowEdge: .bottom) {
+                if let url = model.currentURL { FilePopover(url: url, model: model) }
             }
             PathLine(levels: Self.levels(of: path)) { model.jump(to: $0) }
         }
@@ -292,27 +281,6 @@ struct TitleView: View {
         // Lines up with the photo's left edge instead of hugging the sidebar; next to back and forward it sits
         // as close as Finder's title does.
         .padding(.leading, model.hasJumped ? 3 : ImageScrollView.sideMargin)
-    }
-
-    private func startRenaming(_ name: String) {
-        draft = name
-        editing = true
-        model.isRenaming = true
-        // Focusing selects everything; the name alone is selected a turn later.
-        let stem = (name as NSString).deletingPathExtension
-        DispatchQueue.main.async {
-            focused = true
-            DispatchQueue.main.async {
-                selection = TextSelection(range: draft.startIndex..<draft.index(draft.startIndex, offsetBy: stem.count))
-            }
-        }
-    }
-
-    private func finish(save: Bool) {
-        guard editing else { return }
-        editing = false
-        model.isRenaming = false
-        if save { model.rename(to: draft) }
     }
 
     // ~/Pictures/From Orbit as [~, Pictures, From Orbit], each with the folder it stands for.
@@ -467,6 +435,128 @@ private struct RoundButtonStyle: ButtonStyle {
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(ink.opacity(configuration.isPressed ? 0.18 : 0.08)))
                 .contentShape(Circle())
+        }
+    }
+}
+
+// Preview's title popover: the name (Return keeps it, Esc undoes), Finder tags, and the folder the photo lives in.
+private struct FilePopover: View {
+    let url: URL
+    @ObservedObject var model: ViewerModel
+    @State private var name = ""
+    @State private var selection: TextSelection?
+    @State private var tags: [String] = []
+    @State private var cancelled = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 8) {
+            GridRow {
+                Text("Name:").foregroundStyle(.secondary).gridColumnAlignment(.trailing)
+                TextField("", text: $name, selection: $selection)
+                    .focused($focused)
+                    .onSubmit { model.showsFilePopover = false }
+                    .onExitCommand {
+                        cancelled = true
+                        model.showsFilePopover = false
+                    }
+            }
+            GridRow {
+                Text("Tags:").foregroundStyle(.secondary)
+                TagField(tags: $tags) { model.setTags($0) }
+            }
+            GridRow {
+                Text("Where:").foregroundStyle(.secondary)
+                Menu {
+                    ForEach(places, id: \.self) { folder in
+                        Button {
+                            model.showsFilePopover = false
+                            model.move(to: folder)
+                        } label: {
+                            Label(FileManager.default.displayName(atPath: folder.path), systemImage: "folder")
+                        }
+                        .disabled(folder == url.deletingLastPathComponent())
+                    }
+                    Divider()
+                    Button("Other…") {
+                        model.showsFilePopover = false
+                        if let folder = Self.chooseFolder() { model.move(to: folder) }
+                    }
+                } label: {
+                    Label(FileManager.default.displayName(atPath: url.deletingLastPathComponent().path), systemImage: "folder")
+                }
+            }
+        }
+        .frame(width: 300)
+        .padding(14)
+        .onAppear {
+            name = url.lastPathComponent
+            tags = (try? url.resourceValues(forKeys: [.tagNamesKey]))?.tagNames ?? []
+            // Focusing selects everything; the name without its extension is selected a turn later, as in Finder.
+            let stem = (name as NSString).deletingPathExtension.count
+            DispatchQueue.main.async {
+                focused = true
+                DispatchQueue.main.async { selection = TextSelection(range: name.startIndex..<name.index(name.startIndex, offsetBy: stem)) }
+            }
+        }
+        // Closing keeps the new name, as in Preview; only Esc throws it away.
+        .onDisappear { if !cancelled { model.rename(to: name) } }
+    }
+
+    // Where the photo is now, the other open folders, then the usual places.
+    private var places: [URL] {
+        let fm = FileManager.default
+        let usual = [fm.urls(for: .desktopDirectory, in: .userDomainMask), fm.urls(for: .documentDirectory, in: .userDomainMask),
+                     fm.urls(for: .downloadsDirectory, in: .userDomainMask), fm.urls(for: .picturesDirectory, in: .userDomainMask)]
+            .compactMap(\.first)
+        var seen: Set<String> = []
+        return ([url.deletingLastPathComponent()] + model.groups.map(\.folder) + usual)
+            .map(\.standardizedFileURL)
+            .filter { seen.insert($0.path).inserted }
+    }
+
+    private static func chooseFolder() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = L("Move")
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+}
+
+// Finder's tag field: each tag a token; changes are written when you leave the field.
+private struct TagField: NSViewRepresentable {
+    @Binding var tags: [String]
+    let onChange: ([String]) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTokenField {
+        let field = NSTokenField()
+        field.placeholderString = L("Add Tags…")
+        field.objectValue = tags
+        field.delegate = context.coordinator
+        field.bezelStyle = .roundedBezel
+        return field
+    }
+
+    func updateNSView(_ field: NSTokenField, context: Context) {
+        context.coordinator.parent = self
+        if (field.objectValue as? [String]) != tags { field.objectValue = tags }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTokenFieldDelegate {
+        var parent: TagField
+        init(_ parent: TagField) { self.parent = parent }
+
+        func controlTextDidEndEditing(_ note: Notification) {
+            guard let field = note.object as? NSTokenField else { return }
+            let new = (field.objectValue as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            guard new != parent.tags else { return }
+            parent.tags = new
+            parent.onChange(new)
         }
     }
 }

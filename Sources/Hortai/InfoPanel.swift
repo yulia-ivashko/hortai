@@ -27,7 +27,8 @@ final class InfoModel: ObservableObject {
 
     init(viewer: ViewerModel) {
         self.viewer = viewer
-        watch = viewer.$currentURL.sink { [weak self] url in self?.load(url) }
+        // Again when the file changes under the same name: new tags, a rotation, edits in another program.
+        watch = viewer.$currentURL.combineLatest(viewer.$revision).sink { [weak self] url, _ in self?.load(url) }
     }
 
     func confirmStrip() {

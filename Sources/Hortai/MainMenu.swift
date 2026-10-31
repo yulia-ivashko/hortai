@@ -19,6 +19,7 @@ enum MainMenu {
             NSMenuItem("Open…", #selector(AppDelegate.openDocument(_:)), symbol: "folder", key: "o"),
             NSMenuItem("Open in New Window…", #selector(AppDelegate.openInNewWindow(_:)), symbol: "macwindow.badge.plus", key: "o").alternate(),
             NSMenuItem("Add Folder…", #selector(AppDelegate.addFolder(_:)), symbol: "folder.badge.plus", key: "o", modifiers: [.command, .shift]),
+            NSMenuItem("Rename…", #selector(ViewerWindowController.renamePhoto(_:)), symbol: "pencil"),
             NSMenuItem("Open in Preview", #selector(ViewerWindowController.openInPreview(_:)), symbol: "pencil.tip.crop.circle"),
             NSMenuItem("Show in Finder", #selector(ViewerWindowController.showInFinder(_:)), symbol: "finder", key: "r", modifiers: [.command, .shift]),
             NSMenuItem("Get Info", #selector(ViewerWindowController.showInfo(_:)), symbol: "info.circle", key: "i"),

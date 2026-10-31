@@ -167,3 +167,13 @@
 "A name can’t contain “/” or start with a dot." = "Назва не може містити «/» чи починатися з крапки.";
 "The name “%@” is already taken." = "Назва «%@» уже зайнята.";
 "Couldn’t rename “%@”" = "Не вдалося перейменувати «%@»";
+"Name:" = "Назва:";
+"Tags:" = "Мітки:";
+"Where:" = "Де:";
+"Other…" = "Інше…";
+"Move" = "Перенести";
+"Add Tags…" = "Додати мітки…";
+"Rename…" = "Перейменувати…";
+"Couldn’t change the tags of “%@”" = "Не вдалося змінити мітки «%@»";
+"“%@” already has a file named “%@”." = "У «%@» уже є файл «%@».";
+"Couldn’t move “%@”" = "Не вдалося перенести «%@»";

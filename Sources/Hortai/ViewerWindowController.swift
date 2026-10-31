@@ -82,8 +82,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return true
     }
 
-    // A text field has the keyboard: the rename field in the title.
-    private var isEditingText: Bool { window?.firstResponder is NSText }
+    // A text field has the keyboard, here or in the title's popover, which is a window of its own.
+    private var isEditingText: Bool { NSApp.keyWindow?.firstResponder is NSText }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         // ⌘⌫ and the bare arrows are these items' shortcuts; while typing a name they must reach the text.
@@ -98,7 +98,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         case #selector(openWith(_:)):
             return true
         case #selector(showNext(_:)), #selector(showPrevious(_:)), #selector(showInFinder(_:)), #selector(moveToTrash(_:)),
-             #selector(showInfo(_:)), #selector(copyPath(_:)), #selector(openInPreview(_:)):
+             #selector(showInfo(_:)), #selector(copyPath(_:)), #selector(openInPreview(_:)), #selector(renamePhoto(_:)):
             return model.currentURL != nil
         default:
             return model.image != nil
@@ -152,6 +152,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             NSMenuItem("Open in Preview", #selector(openInPreview(_:)), symbol: "pencil.tip.crop.circle", modifiers: []),
             NSMenuItem("Show in Finder", #selector(showInFinder(_:)), symbol: "finder", modifiers: []),
             NSMenuItem("Get Info", #selector(showInfo(_:)), symbol: "info.circle", modifiers: []),
+            NSMenuItem("Rename…", #selector(renamePhoto(_:)), symbol: "pencil", modifiers: []),
             .separator(),
             NSMenuItem("Copy", #selector(copy(_:)), symbol: "doc.on.doc", modifiers: []),
             NSMenuItem("Copy Path", #selector(copyPath(_:)), symbol: "document.on.clipboard", modifiers: []).alternate(),
@@ -337,12 +338,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             item.minSize = NSSize(width: 60, height: 30)
             item.maxSize = NSSize(width: idealTitleWidth, height: 30)
             titleItemRef = item
-            titleWatch = model.$currentURL.combineLatest(model.$groups, model.$hasJumped, model.$isRenaming).sink { [weak self] _, _, _, renaming in
+            titleWatch = model.$currentURL.combineLatest(model.$groups, model.$hasJumped).sink { [weak self] _, _, _ in
                 // After the model has published the new name.
                 DispatchQueue.main.async {
                     guard let self, let item = self.titleItemRef else { return }
-                    // The rename field needs room to type a longer name.
-                    item.maxSize = NSSize(width: max(renaming ? 320 : 60, self.idealTitleWidth), height: 30)
+                    // Room for the chevron that appears beside the name on hover.
+                    item.maxSize = NSSize(width: max(60, self.idealTitleWidth + 14), height: 30)
                 }
             }
             item.isBordered = false
@@ -363,6 +364,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     @objc func copyPath(_ sender: Any?) { model.copyPath() }
+    @objc func renamePhoto(_ sender: Any?) { model.showsFilePopover = true }
 }
 
 // Back and forward in one capsule. A long press shows a segment's menu by itself; a right-click does here too,
