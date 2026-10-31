@@ -199,8 +199,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     private var titleHost: NSHostingController<TitleView>?
     private weak var titleItemRef: NSToolbarItem?
     private var titleWatch: AnyCancellable?
+    // Measured on a fresh copy: the shown one may not have redrawn the new name yet and gave the old width.
     private var idealTitleWidth: CGFloat {
-        ceil(titleHost?.sizeThatFits(in: CGSize(width: CGFloat.infinity, height: 30)).width ?? 120)
+        ceil(NSHostingController(rootView: TitleView(model: model)).sizeThatFits(in: CGSize(width: CGFloat.infinity, height: 30)).width)
     }
     private var historyItem: NSToolbarItem?
     private var historyControl: HistoryControl?
@@ -313,7 +314,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             item.minSize = NSSize(width: 60, height: 30)
             item.maxSize = NSSize(width: idealTitleWidth, height: 30)
             titleItemRef = item
-            titleWatch = model.$currentURL.combineLatest(model.$groups).sink { [weak self] _, _ in
+            titleWatch = model.$currentURL.combineLatest(model.$groups, model.$hasJumped).sink { [weak self] _, _, _ in
                 // After the model has published the new name.
                 DispatchQueue.main.async {
                     guard let self, let item = self.titleItemRef else { return }
