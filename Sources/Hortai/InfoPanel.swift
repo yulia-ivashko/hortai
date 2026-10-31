@@ -110,9 +110,9 @@ struct InfoView: View {
                                     Text(item.label)
                                         .foregroundStyle(.secondary)
                                         .frame(width: labelWidth, alignment: .trailing)
-                                    Text(item.value)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                    LongValue(text: item.value)
+                                        // A new photo's text starts folded again.
+                                        .id(item.value)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 .font(.callout)
@@ -288,6 +288,43 @@ enum PhotoInfoReader {
         parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
         guard let date = parser.date(from: raw) else { return raw }
         return date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened))
+    }
+}
+
+// Long values (a NASA caption runs to twenty lines) show two lines, with an arrow after them to unfold the rest.
+private struct LongValue: View {
+    let text: String
+    @State private var open = false
+    @State private var fullHeight: CGFloat = 0
+    @State private var shownHeight: CGFloat = 0
+
+    var body: some View {
+        HStack(alignment: .lastTextBaseline, spacing: 4) {
+            Text(text)
+                .textSelection(.enabled)
+                .lineLimit(open ? nil : 2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { shownHeight = $0 }
+                // The whole text, unseen, to tell whether two lines cut anything off.
+                .background(alignment: .topLeading) {
+                    Text(text)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fullHeight = $0 }
+                }
+            if open || fullHeight > shownHeight + 1 {
+                Button { withAnimation(.easeOut(duration: 0.15)) { open.toggle() } } label: {
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(open ? L("Less") : L("More"))
+            }
+        }
     }
 }
 
