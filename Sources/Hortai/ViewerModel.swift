@@ -27,6 +27,10 @@ final class ViewerModel: ObservableObject {
     private var shapesWindowOnLoad = false
     // One watcher per open folder, so files added or removed in Finder show up by themselves.
     private var watchers: [URL: DispatchSourceFileSystemObject] = [:]
+    // The shown photo's own watcher: a program writing into the file in place leaves its folder untouched.
+    private var photoWatcher: DispatchSourceFileSystemObject?
+    // When each photo was last changed, to tell which ones another program has saved over.
+    private var stamps: [URL: Date] = [:]
     private var rescanPending = false
 
     // MARK: Opening and stepping
@@ -160,6 +164,8 @@ final class ViewerModel: ObservableObject {
     }
 
     private func clear() {
+        photoWatcher?.cancel()
+        photoWatcher = nil
         loadTask?.cancel()
         currentURL = nil
         image = nil
@@ -169,6 +175,14 @@ final class ViewerModel: ObservableObject {
     }
 
     private func show(_ url: URL) {
+        if url != currentURL { watchPhoto(url) }
+        // Written over in place while not shown, it left no trace in the folder; a stale copy may wait in the cache.
+        if let old = stamps[url], let now = Self.stamp(url), old != now {
+            stamps[url] = now
+            cache[url] = nil
+            ThumbnailCache.forget(url)
+            revision += 1
+        }
         currentURL = url
         if let index = indexOf(url) { lastIndex = index }
         saveSession()
@@ -271,8 +285,10 @@ final class ViewerModel: ObservableObject {
         for (folder, source) in watchers where !folders.contains(folder) {
             source.cancel()
             watchers[folder] = nil
+            stamps = stamps.filter { $0.key.deletingLastPathComponent() != folder }
         }
         for folder in folders where watchers[folder] == nil {
+            for file in groups.first(where: { $0.folder == folder })?.files ?? [] { stamps[file] = Self.stamp(file) }
             let fd = Darwin.open(folder.path, O_EVTONLY)
             guard fd >= 0 else { continue }
             let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
@@ -283,7 +299,34 @@ final class ViewerModel: ObservableObject {
         }
     }
 
-    // A burst of changes (a copy, a screenshot being written) settles into one rescan.
+    private func watchPhoto(_ url: URL) {
+        photoWatcher?.cancel()
+        photoWatcher = nil
+        let fd = Darwin.open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .delete, .rename], queue: .main)
+        source.setEventHandler { [weak self] in self?.folderChanged() }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        photoWatcher = source
+    }
+
+    private static func stamp(_ url: URL) -> Date? {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+    }
+
+    // Photos another program saved over since we last looked: shown again, and their thumbnails redrawn.
+    private func reloadChanged() {
+        var fresh: [URL: Date] = [:]
+        for file in files { fresh[file] = Self.stamp(file) }
+        let changed = fresh.filter { file, date in stamps[file].map { $0 != date } ?? false }.map(\.key)
+        stamps = fresh
+        for url in changed { reloadIfShowing(url) }
+        // A save that replaces the file leaves the watcher on the old one.
+        if let current = currentURL, changed.contains(current) { watchPhoto(current) }
+    }
+
+    // A burst of changes (a copy, a screenshot being written, a program saving) settles into one rescan.
     private func folderChanged() {
         guard !rescanPending else { return }
         rescanPending = true
@@ -291,6 +334,7 @@ final class ViewerModel: ObservableObject {
             guard let self else { return }
             rescanPending = false
             rescan()
+            reloadChanged()
             if let current = currentURL {
                 guard indexOf(current) == nil else { return }
                 // The shown photo was deleted or moved away in Finder.
@@ -421,6 +465,8 @@ final class ViewerModel: ObservableObject {
 
     // The file changed on disk; drop the cached copy and show it again.
     func reloadIfShowing(_ url: URL) {
+        // Our own rotation is not news when the folder reports it a moment later.
+        stamps[url] = Self.stamp(url)
         cache[url] = nil
         ThumbnailCache.forget(url)
         revision += 1
