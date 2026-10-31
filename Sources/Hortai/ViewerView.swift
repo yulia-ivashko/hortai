@@ -62,7 +62,7 @@ struct ViewerView: View {
     }
 }
 
-// Finder-style toolbar groups: zoom out, size, zoom in, fit to screen | previous, slideshow, next | rotate | delete.
+// Finder-style toolbar groups: zoom out, size, zoom in, fit to screen | previous, next | rotate | delete.
 struct ControlBar: View {
     @ObservedObject var model: ViewerModel
     @ObservedObject var zoom: ZoomController
@@ -89,9 +89,10 @@ struct ControlBar: View {
                 }
                 .disabled(!hasImage)
 
+                // Slideshow lives in the View menu and on F5, as in Preview: the bar keeps only what you reach for often.
                 BarGroup {
                     BarButton(symbol: "chevron.backward", help: "Previous (←)") { model.step(-1) }
-                    BarButton(symbol: "play.fill", help: "Slideshow (F5)", prominent: true) { model.startSlideshow() }
+                    BarDivider()
                     BarButton(symbol: "chevron.forward", help: "Next (→)") { model.step(1) }
                 }
 
@@ -133,16 +134,14 @@ private struct BarDivider: View {
 private struct BarButton: View {
     let symbol: String
     let help: String
-    var prominent = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: prominent ? 14 : 15, weight: prominent ? .semibold : .regular))
-                .offset(x: symbol == "play.fill" ? 1 : 0)
+                .font(.system(size: 15))
         }
-        .buttonStyle(CellStyle(prominent: prominent))
+        .buttonStyle(CellStyle())
         .overlay(ToolTip(text: L(help)))
     }
 }
@@ -175,35 +174,26 @@ private struct ToolTip: NSViewRepresentable {
     }
 }
 
-// A bare glyph that gets a soft circle under the pointer; the main action is a filled circle.
+// A bare glyph that gets a soft circle under the pointer.
 private struct CellStyle: ButtonStyle {
-    let prominent: Bool
-
     func makeBody(configuration: Configuration) -> some View {
-        Cell(configuration: configuration, prominent: prominent)
+        Cell(configuration: configuration)
     }
 
     private struct Cell: View {
         let configuration: ButtonStyleConfiguration
-        let prominent: Bool
         @Environment(\.isEnabled) private var isEnabled
         @Environment(\.colorScheme) private var scheme
         @State private var hovering = false
 
         var body: some View {
             let pressed = configuration.isPressed
-            // Solid colours: hierarchical styles turn grey on glass and the main button looked disabled.
+            // Solid colours: hierarchical styles turn grey on glass.
             let ink: Color = scheme == .dark ? .white : .black
             configuration.label
-                .foregroundStyle(prominent ? (scheme == .dark ? Color.black : .white) : ink)
+                .foregroundStyle(ink)
                 .frame(width: cellSize, height: cellSize)
-                .background {
-                    if prominent {
-                        Circle().fill(ink.opacity(pressed ? 0.75 : 1))
-                    } else {
-                        Circle().fill(ink.opacity(pressed ? 0.16 : hovering ? 0.08 : 0))
-                    }
-                }
+                .background { Circle().fill(ink.opacity(pressed ? 0.16 : hovering ? 0.08 : 0)) }
                 .contentShape(Circle())
                 .opacity(isEnabled ? 1 : 0.35)
                 .onHover { hovering = $0 }
