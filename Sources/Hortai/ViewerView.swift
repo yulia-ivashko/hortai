@@ -33,6 +33,8 @@ struct ViewerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Measured: the info card starts 8 pt past the end of this pane.
+        .padding(.trailing, model.infoPanelOpen ? -8 : 0)
         .background { WindowGlass().ignoresSafeArea() }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             guard let provider = providers.first else { return false }

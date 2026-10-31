@@ -21,7 +21,6 @@ struct InfoSection: Identifiable {
 @MainActor
 final class InfoModel: ObservableObject {
     @Published private(set) var sections: [InfoSection] = []
-    @Published private(set) var summary = ""
     @Published private(set) var location: (lat: Double, lon: Double)?
     private var watch: AnyCancellable?
     let viewer: ViewerModel
@@ -60,7 +59,6 @@ final class InfoModel: ObservableObject {
     private func load(_ url: URL?) {
         guard let url else {
             sections = []
-            summary = ""
             location = nil
             return
         }
@@ -68,93 +66,99 @@ final class InfoModel: ObservableObject {
             let result = await Task.detached(priority: .userInitiated) { PhotoInfoReader.read(url) }.value
             guard viewer.currentURL == url else { return }
             sections = result.sections
-            summary = result.summary
             location = result.location
         }
     }
 }
 
-// Finder's preview pane: the photo's name and kind on top, details below, the one action at the bottom.
+// Dense like Finder's Get Info and Preview's Inspector, not grouped cards: grey labels on the left, values beside
+// them on one line, small section headings. The title sits in the band beside the ⓘ button, the one action at the bottom.
 struct InfoView: View {
     @ObservedObject var info: InfoModel
 
     var body: some View {
-        // The button sits under the list, not over it, so rows never show through.
-        VStack(spacing: 0) {
-            Form {
-                if let url = info.viewer.currentURL {
-                    Section {
-                        HStack(spacing: 12) {
-                            Thumbnail(url: url, side: 48, revision: info.viewer.revision)
-                                .frame(width: 48, height: 48)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(url.lastPathComponent)
-                                    .font(.headline)
-                                    .lineLimit(2)
-                                    .textSelection(.enabled)
-                                Text(info.summary).foregroundStyle(.secondary)
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                Text("Metadata")
+                    .font(.headline)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    // Clear of the ⓘ button, and centred on it, which sits a little above the band's middle (measured).
+                    .padding(.horizontal, 52)
+                    .padding(.bottom, 8)
+                    .frame(height: geometry.safeAreaInsets.top)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(info.sections) { section in
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(section.title)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 4) {
+                                    ForEach(section.rows, id: \.label) { row in
+                                        GridRow {
+                                            Text(row.label)
+                                                .foregroundStyle(.secondary)
+                                                .gridColumnAlignment(.trailing)
+                                            Text(row.value)
+                                                .textSelection(.enabled)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    }
+                                }
+                                .font(.callout)
+                                if section.id == "Location", let location = info.location {
+                                    Button("Open in Maps") {
+                                        NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
+                                    }
+                                    .controlSize(.small)
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 4)
+                    .padding(.bottom, 16)
                 }
-                ForEach(info.sections) { section in
-                    Section(section.title) {
-                        ForEach(section.rows, id: \.label) { row in
-                            LabeledContent(row.label) {
-                                Text(row.value).textSelection(.enabled).multilineTextAlignment(.trailing)
-                            }
-                        }
-                        if section.id == "Location", let location = info.location {
-                            Button("Open in Maps") {
-                                NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
-                            }
-                        }
+                .scrollEdgeEffectHidden(true, for: .top)
+                // Rows fade out before the button instead of ending on a hard edge.
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 20)
                     }
                 }
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            // The toolbar band above holds the ⓘ button, like the traffic lights above the left panel;
-            // the details start right under it instead of sliding beneath it.
-            .scrollEdgeEffectHidden(true, for: .top)
-            // Rows fade out before the button instead of ending on a hard edge.
-            .mask {
-                VStack(spacing: 0) {
-                    Color.black
-                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 28)
+                if !info.sections.isEmpty {
+                    Button(role: .destructive) { info.confirmStrip() } label: {
+                        Text("Remove All Metadata…").frame(maxWidth: .infinity)
+                    }
+                    .buttonBorderShape(.capsule)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
+                    .padding(.top, 4)
                 }
             }
-            if !info.sections.isEmpty {
-                Button(role: .destructive) { info.confirmStrip() } label: {
-                    Text("Remove All Metadata…").frame(maxWidth: .infinity)
-                }
-                .controlSize(.large)
-                .buttonBorderShape(.capsule)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
-                .padding(.top, 4)
-            }
+            .ignoresSafeArea(.container, edges: .top)
         }
         .frame(minWidth: 260)
     }
 }
 
 enum PhotoInfoReader {
-    // summary is Finder's line under the name: "PNG image – 9.4 MB".
-    nonisolated static func read(_ url: URL) -> (sections: [InfoSection], summary: String, location: (lat: Double, lon: Double)?) {
+    nonisolated static func read(_ url: URL) -> (sections: [InfoSection], location: (lat: Double, lon: Double)?) {
         var sections: [InfoSection] = []
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .contentModificationDateKey, .contentTypeKey])
-        let dates = Date.FormatStyle(date: .long, time: .shortened)
-
-        let summary = [
-            values?.contentType.map { $0.localizedDescription ?? $0.identifier },
-            values?.fileSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) },
-        ].compactMap { $0 }.joined(separator: " – ")
+        // Short dates: the long ones wrapped onto a second line in the panel.
+        let dates = Date.FormatStyle(date: .abbreviated, time: .shortened)
 
         var file: [(String, String)] = []
+        // "JPEG", not "JPEG image": every file here is an image.
+        if let kind = values?.contentType { file.append(("Kind", (kind.preferredFilenameExtension ?? url.pathExtension).uppercased())) }
+        if let size = values?.fileSize { file.append(("Size", ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))) }
         if let created = values?.creationDate { file.append(("Created", created.formatted(dates))) }
         if let modified = values?.contentModificationDate { file.append(("Modified", modified.formatted(dates))) }
-        file.append(("Folder", url.deletingLastPathComponent().path))
+        file.append(("Folder", (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath))
         if let tags = (try? url.resourceValues(forKeys: [.tagNamesKey]))?.tagNames, !tags.isEmpty {
             file.append(("Tags", tags.joined(separator: ", ")))
         }
@@ -173,7 +177,7 @@ enum PhotoInfoReader {
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-            return (sections, summary, nil)
+            return (sections, nil)
         }
         let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
@@ -224,7 +228,7 @@ enum PhotoInfoReader {
             if let altitude = gps[kCGImagePropertyGPSAltitude] as? Double { rows.append(("Altitude", String(format: L("%d m"), Int(altitude.rounded())))) }
             sections.append(InfoSection(title: "Location", rows: rows))
         }
-        return (sections, summary, location)
+        return (sections, location)
     }
 
     // EXIF writes "2024:07:15 18:42:03".
@@ -233,6 +237,6 @@ enum PhotoInfoReader {
         parser.locale = Locale(identifier: "en_US_POSIX")
         parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
         guard let date = parser.date(from: raw) else { return raw }
-        return date.formatted(Date.FormatStyle(date: .long, time: .shortened))
+        return date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened))
     }
 }

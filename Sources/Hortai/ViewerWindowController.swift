@@ -25,7 +25,19 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
         window.delegate = self
         split = ViewerSplitController(model: model, info: info)
-        window.contentViewController = split
+        // The same glass under the whole window: the photo's glass reaches under the left panel by itself, not
+        // under the right one, and the window's plain white showed round it.
+        let glass = NSVisualEffectView()
+        glass.material = .sidebar
+        glass.blendingMode = .behindWindow
+        glass.state = .followsWindowActiveState
+        let container = NSViewController()
+        container.view = glass
+        container.addChild(split)
+        split.view.frame = glass.bounds
+        split.view.autoresizingMask = [.width, .height]
+        glass.addSubview(split.view)
+        window.contentViewController = container
         let toolbar = NSToolbar(identifier: "HortaiViewer")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly

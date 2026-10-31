@@ -337,9 +337,8 @@ final class ViewerSplitController: NSSplitViewController {
         thumbnails.isCollapsed = true
         thumbnails.minimumThickness = 200
         thumbnails.maximumThickness = 320
-        // A plain item, not an inspector: an inspector starts under an empty toolbar band; this one runs to the top edge.
-        let infoView = InfoView(info: infoModel).background { WindowGlass().ignoresSafeArea() }
-        info = NSSplitViewItem(viewController: Self.host(infoView))
+        // A sidebar on the trailing side floats like the thumbnails one, so the window is framed the same on both sides.
+        info = NSSplitViewItem(sidebarWithViewController: Self.host(InfoView(info: infoModel)))
         info.canCollapse = true
         info.isCollapsed = true
         // Below the priority of a dragged divider, so the panel can be resized by hand; above the photo, so it keeps its width when the window does.
@@ -373,6 +372,7 @@ final class ViewerSplitController: NSSplitViewController {
         let defaults = UserDefaults.standard
         thumbnails.isCollapsed = !(hasFolders && defaults.bool(forKey: Self.thumbnailsKey))
         info.isCollapsed = !(hasPhoto && defaults.bool(forKey: Self.infoKey))
+        model.infoPanelOpen = !info.isCollapsed
     }
 
     override func toggleSidebar(_ sender: Any?) {
@@ -386,6 +386,7 @@ final class ViewerSplitController: NSSplitViewController {
         guard model.currentURL != nil else { return }
         let show = info.isCollapsed
         info.animator().isCollapsed = !show
+        model.infoPanelOpen = show
         UserDefaults.standard.set(show, forKey: Self.infoKey)
     }
 

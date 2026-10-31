@@ -17,6 +17,9 @@ final class ViewerModel: ObservableObject {
     private(set) var files: [URL] = []
     // Where the shown photo sat in files, to carry on from there if it disappears.
     private var lastIndex = 0
+    // The info panel floats with a gap before its card; the photo and its controls reach into that gap,
+    // so they sit as far from the info panel as from the thumbnails one.
+    @Published var infoPanelOpen = false
     // Width taken by open side panels, so a new photo shapes only the part of the window it is shown in.
     var sidePanelsWidth: () -> CGFloat = { 0 }
     // Bumped when a photo changes on disk, so thumbnails redraw.
