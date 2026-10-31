@@ -16,8 +16,21 @@ xcrun actool "$PWD/Resources/AppIcon.icon" --compile "$PWD/$APP/Contents/Resourc
   --output-partial-info-plist "$PWD/$APP/Contents/Resources/.icon-partial.plist" >/dev/null
 rm -f "$APP/Contents/Resources/.icon-partial.plist"
 cp -R Resources/*.lproj "$APP/Contents/Resources/"
-codesign --force --sign - "$APP"
+# Ad hoc for a local build; the release passes the Developer ID certificate, with the hardened runtime notarisation needs.
+if [[ -n "${SIGNING_IDENTITY:-}" ]]; then
+  codesign --force --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP"
+else
+  codesign --force --sign - "$APP"
+fi
 # The bundle was deleted and recreated; without this Finder keeps showing a blank icon for it.
 touch "$APP"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$PWD/$APP"
+# Release only: notarise, staple the ticket so the app opens offline too, and zip it.
+if [[ -n "${APPLE_ID:-}" ]]; then
+  ditto -c -k --keepParent "$APP" build/Hortai.zip
+  xcrun notarytool submit build/Hortai.zip --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+  xcrun stapler staple "$APP"
+  rm build/Hortai.zip
+  ditto -c -k --keepParent "$APP" build/Hortai.zip
+fi
 echo "$PWD/$APP"

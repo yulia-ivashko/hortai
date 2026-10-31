@@ -1,0 +1,73 @@
+# Builds, signs with the Developer ID certificate, notarises and publishes a GitHub release
+# whenever a version tag is pushed: `git tag v1.1 && git push origin v1.1`. The tag must
+# match CFBundleShortVersionString in Resources/Info.plist.
+#
+# Repository secrets: APPLE_CERTIFICATE (the Developer ID Application .p12, base64),
+# APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY (its name, "Developer ID Application: …"),
+# APPLE_ID, APPLE_PASSWORD (an app-specific password) and APPLE_TEAM_ID.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # Hortai needs the macOS 26 SDK and Xcode 26's actool for its layered icon.
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the tag matches the app version
+        run: |
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match version $VERSION in Resources/Info.plist." >&2
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Import the signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+          rm "$RUNNER_TEMP/certificate.p12"
+
+      - name: Build, sign and notarise
+        env:
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          ./build.sh
+          spctl --assess --type execute --verbose=2 build/Hortai.app
+          mv build/Hortai.zip "build/Hortai-$VERSION.zip"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The tag's message, when it has one, becomes the release notes.
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          NOTES="$(git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents)' | sed '/^-----BEGIN/,$d')"
+          [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ] || NOTES=""
+          [ -n "$NOTES" ] || NOTES="Hortai $VERSION."
+          gh release create "$GITHUB_REF_NAME" "build/Hortai-$VERSION.zip" --title "Hortai $VERSION" --notes "$NOTES"
+
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
