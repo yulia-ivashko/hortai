@@ -88,27 +88,32 @@ struct InfoView: View {
                     .padding(.bottom, 8)
                     .frame(height: geometry.safeAreaInsets.top)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(info.sections) { section in
-                            VStack(alignment: .leading, spacing: 5) {
+                    // One grid for every section, so all values start at the same line.
+                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 4) {
+                        ForEach(Array(info.sections.enumerated()), id: \.element.id) { index, section in
+                            GridRow {
                                 Text(section.title)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 4) {
-                                    ForEach(section.rows, id: \.label) { row in
-                                        GridRow {
-                                            Text(row.label)
-                                                .foregroundStyle(.secondary)
-                                                .gridColumnAlignment(.trailing)
-                                            Text(row.value)
-                                                .textSelection(.enabled)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                        }
-                                    }
+                                    .padding(.top, index == 0 ? 0 : 10)
+                                    .padding(.bottom, 1)
+                                    .gridCellColumns(2)
+                            }
+                            ForEach(section.rows, id: \.label) { row in
+                                GridRow {
+                                    Text(row.label)
+                                        .foregroundStyle(.secondary)
+                                        .gridColumnAlignment(.trailing)
+                                    Text(row.value)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 .font(.callout)
-                                if section.id == "Location", let location = info.location {
+                            }
+                            if section.id == "Location", let location = info.location {
+                                GridRow {
+                                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                                     Button("Open in Maps") {
                                         NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
                                     }
