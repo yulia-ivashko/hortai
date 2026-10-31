@@ -221,6 +221,14 @@ enum PhotoInfoReader {
             about.append(("Copyright", rights))
         }
         if let note = text(exif[kCGImagePropertyExifUserComment]) { about.append(("Comment", note)) }
+        // Lightroom and Bridge keep the rating and colour label in XMP; older tools in IPTC.
+        let xmp = CGImageSourceCopyMetadataAtIndex(source, 0, nil)
+        func xmpText(_ path: String) -> String? {
+            xmp.flatMap { CGImageMetadataCopyStringValueWithPath($0, nil, path as CFString) as String? }.flatMap(text)
+        }
+        let stars = xmpText("xmp:Rating").flatMap(Int.init) ?? (iptc[kCGImagePropertyIPTCStarRating] as? Int) ?? 0
+        if (1...5).contains(stars) { about.append(("Rating", String(repeating: "★", count: stars) + String(repeating: "☆", count: 5 - stars))) }
+        if let label = xmpText("xmp:Label") { about.append(("Label", label)) }
         if !about.isEmpty { sections.insert(InfoSection(title: "Description", rows: about), at: 0) }
 
         var image: [(String, String)] = []
@@ -245,7 +253,11 @@ enum PhotoInfoReader {
             shot.append(("Camera", text))
         }
         // Nikon and others put the lens only in the auxiliary block.
-        if let lens = text(exif[kCGImagePropertyExifLensModel]) ?? text(aux[kCGImagePropertyExifAuxLensModel]) { shot.append(("Lens", lens)) }
+        if var lens = text(exif[kCGImagePropertyExifLensModel]) ?? text(aux[kCGImagePropertyExifAuxLensModel]) {
+            // "Sigma 24-70mm", unless the model already names its maker.
+            if let make = text(exif[kCGImagePropertyExifLensMake]), !lens.localizedCaseInsensitiveContains(make) { lens = make + " " + lens }
+            shot.append(("Lens", lens))
+        }
         if let time = exif[kCGImagePropertyExifExposureTime] as? Double, time > 0 {
             shot.append(("Exposure", time >= 1 ? String(format: L("%g s"), time) : String(format: L("1/%d s"), Int((1 / time).rounded()))))
         }
@@ -267,17 +279,43 @@ enum PhotoInfoReader {
         if let balance = exif[kCGImagePropertyExifWhiteBalance] as? Int { shot.append(("White balance", L(balance == 1 ? "Manual" : "Auto"))) }
         if let flash = exif[kCGImagePropertyExifFlash] as? Int { shot.append(("Flash", flash & 1 == 1 ? L("Fired") : L("Off"))) }
         if let software = tiff[kCGImagePropertyTIFFSoftware] as? String { shot.append(("Software", software)) }
+        // What an iPhone adds: the still of a Live Photo carries its pair's identifier in Apple's maker note,
+        // HDR is a composite of several frames, Portrait keeps a depth map beside the picture.
+        var features: [String] = []
+        let apple = props[kCGImagePropertyMakerAppleDictionary] as? [String: Any] ?? [:]
+        if apple["17"] != nil { features.append("Live Photo") }
+        if let composite = exif[kCGImagePropertyExifCompositeImage] as? Int, composite >= 2 { features.append("HDR") }
+        let depth = [kCGImageAuxiliaryDataTypeDisparity, kCGImageAuxiliaryDataTypeDepth, kCGImageAuxiliaryDataTypePortraitEffectsMatte]
+        if depth.contains(where: { CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, $0) != nil }) { features.append(L("Portrait")) }
+        if !features.isEmpty { shot.append(("Features", features.joined(separator: ", "))) }
         if !shot.isEmpty { sections.append(InfoSection(title: "Shooting", rows: shot)) }
 
         var location: (lat: Double, lon: Double)?
+        var place: [(String, String)] = []
+        // The place in words, as Lightroom and Photos write it: nearest first.
+        let words = [kCGImagePropertyIPTCSubLocation, kCGImagePropertyIPTCCity, kCGImagePropertyIPTCProvinceState,
+                     kCGImagePropertyIPTCCountryPrimaryLocationName].compactMap { text(iptc[$0]) }
+        if !words.isEmpty { place.append(("Place", words.joined(separator: ", "))) }
         if var lat = gps[kCGImagePropertyGPSLatitude] as? Double, var lon = gps[kCGImagePropertyGPSLongitude] as? Double {
             if (gps[kCGImagePropertyGPSLatitudeRef] as? String) == "S" { lat = -lat }
             if (gps[kCGImagePropertyGPSLongitudeRef] as? String) == "W" { lon = -lon }
             location = (lat, lon)
-            var rows = [("Coordinates", String(format: "%.5f, %.5f", lat, lon))]
-            if let altitude = gps[kCGImagePropertyGPSAltitude] as? Double { rows.append(("Altitude", String(format: L("%d m"), Int(altitude.rounded())))) }
-            sections.append(InfoSection(title: "Location", rows: rows))
+            place.append(("Coordinates", String(format: "%.5f, %.5f", lat, lon)))
         }
+        if let altitude = gps[kCGImagePropertyGPSAltitude] as? Double {
+            let below = (gps[kCGImagePropertyGPSAltitudeRef] as? Int) == 1
+            place.append(("Altitude", String(format: L("%d m"), Int((below ? -altitude : altitude).rounded()))))
+        }
+        if let heading = gps[kCGImagePropertyGPSImgDirection] as? Double {
+            let points = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+            let point = points[Int((heading / 45).rounded()) % 8]
+            place.append(("Direction", "\(Int(heading.rounded()))° \(L(point))"))
+        }
+        if let speed = gps[kCGImagePropertyGPSSpeed] as? Double, speed > 0 {
+            let unit = ["K": "km/h", "M": "mph", "N": "kn"][gps[kCGImagePropertyGPSSpeedRef] as? String ?? "K"] ?? "km/h"
+            place.append(("Speed", String(format: "%g ", (speed * 10).rounded() / 10) + L(unit)))
+        }
+        if !place.isEmpty { sections.append(InfoSection(title: "Location", rows: place)) }
         return (sections, location)
     }
 
