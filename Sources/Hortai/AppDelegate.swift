@@ -73,9 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.model.restore(folders: folders, photo: photo)
     }
 
-    // The standard panel, with who made Hortai and where it lives.
+    // The standard panel, with who made Hortai and where it lives; the credit stays in English in every language.
     @objc func showAbout(_ sender: Any?) {
-        let credits = NSMutableAttributedString(string: L("Made by Iuliia Ivashko") + "\n", attributes: [
+        let credits = NSMutableAttributedString(string: "Made by Iuliia Ivashko\n", attributes: [
             .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
             .foregroundColor: NSColor.labelColor,
         ])
