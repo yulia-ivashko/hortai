@@ -36,9 +36,13 @@
 /* Viewer */
 "Open Photo…" = "Відкрити фото…";
 "Can’t open this photo" = "Не вдалося відкрити це фото";
+"Zoom Out (⌘−)" = "Зменшити (⌘−)";
+"Zoom In (⌘+)" = "Збільшити (⌘+)";
 "Fill Window" = "Розтягнути на вікно";
 "Actual Size (⌘0)" = "Реальний розмір (⌘0)";
 "Fit to Window (⌘9)" = "Вмістити у вікно (⌘9)";
+"Fit to Screen" = "Вмістити на екран";
+"Fit to Screen (⌘8)" = "Вмістити на екран (⌘8)";
 "Previous (←)" = "Попереднє (←)";
 "Next (→)" = "Наступне (→)";
 "Slideshow (F5)" = "Показ слайдів (F5)";
@@ -92,6 +96,7 @@
 "Off" = "Без спалаху";
 "Software" = "Програма";
 "Remove All Metadata" = "Видалити всі метадані";
+"Remove All Metadata…" = "Видалити всі метадані…";
 "Remove all metadata from “%@”?" = "Видалити всі метадані з «%@»?";
 "Camera, date taken, location, download source, tags and other details will be deleted for good. File dates will be set to now." = "Камера, дата зйомки, місце, звідки завантажено, позначки та інші дані зникнуть назавжди. Дати файлу стануть сьогоднішніми.";
 "Remove" = "Видалити";
@@ -100,3 +105,11 @@
 "Last opened" = "Відкривали востаннє";
 "Downloaded from" = "Звідки завантажено";
 "Comment" = "Коментар";
+"Thumbnails" = "Мініатюри";
+"Thumbnails and Names" = "Мініатюри й назви";
+"List" = "Список";
+"Show Sidebar" = "Показати бічну панель";
+"Remove from Sidebar" = "Прибрати з панелі";
+"Add Folder…" = "Додати папку…";
+"Open in New Window…" = "Відкрити в новому вікні…";
+"No Photos" = "Немає фото";

@@ -19,45 +19,78 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Files opened from Finder arrive before this; show an empty window only on a bare launch.
+        // Files opened from Finder arrive before this; a bare launch brings back the last session.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            if self.controllers.isEmpty { self.openWindow(with: nil) }
+            if self.controllers.isEmpty { self.restoreSession() }
         }
         NSApp.activate()
     }
 
+    // From Finder: the first item replaces what the front window shows, the rest join it.
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls { openWindow(with: url) }
+        guard let first = urls.first else { return }
+        openWindow(with: first)
+        for url in urls.dropFirst() { frontController?.model.add(url) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { openWindow(with: nil) }
+        if !flag { restoreSession() }
         return true
     }
 
+    private var frontController: ViewerWindowController? {
+        (NSApp.mainWindow?.windowController as? ViewerWindowController) ?? controllers.last
+    }
+
+    // Opens in the front window, replacing what it showed; a new window only when there is none.
     func openWindow(with url: URL?) {
-        if let url, let empty = controllers.first(where: { $0.model.currentURL == nil }) {
-            empty.model.open(url)
-            empty.showWindow(nil)
+        if let url, let front = frontController {
+            front.model.open(url)
+            front.showWindow(nil)
             return
         }
+        newWindow(with: url)
+    }
+
+    @discardableResult
+    private func newWindow(with url: URL?) -> ViewerWindowController {
         let controller = ViewerWindowController(url: url)
         controller.onClose = { [weak self, weak controller] in
             self?.controllers.removeAll { $0 === controller }
         }
         controllers.append(controller)
         controller.showWindow(nil)
+        return controller
+    }
+
+    private func restoreSession() {
+        let defaults = UserDefaults.standard
+        let folders = (defaults.stringArray(forKey: ViewerModel.sessionFoldersKey) ?? []).map { URL(fileURLWithPath: $0) }
+        let photo = defaults.string(forKey: ViewerModel.sessionPhotoKey).map { URL(fileURLWithPath: $0) }
+        let controller = newWindow(with: nil)
+        controller.model.restore(folders: folders, photo: photo)
     }
 
     @objc func openDocument(_ sender: Any?) {
         if let url = Self.runOpenPanel() { openWindow(with: url) }
     }
 
+    @objc func openInNewWindow(_ sender: Any?) {
+        if let url = Self.runOpenPanel() { newWindow(with: url) }
+    }
+
+    @objc func addFolder(_ sender: Any?) {
+        guard let url = Self.runOpenPanel() else { return }
+        if let front = frontController { front.model.add(url) } else { newWindow(with: url) }
+    }
+
     static func runOpenPanel() -> URL? {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
+        // A folder opens at its first photo.
+        panel.allowedContentTypes = [.image, .folder]
+        panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         return panel.runModal() == .OK ? panel.url : nil
     }

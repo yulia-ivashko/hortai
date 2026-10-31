@@ -17,57 +17,41 @@ struct InfoSection: Identifiable {
     }
 }
 
-// The floating "Info" panel of one viewer window; follows the photo as you step.
+// What the right-hand info panel shows; follows the photo as you step.
 @MainActor
-final class InfoPanelController: ObservableObject {
+final class InfoModel: ObservableObject {
     @Published private(set) var sections: [InfoSection] = []
+    @Published private(set) var summary = ""
     @Published private(set) var location: (lat: Double, lon: Double)?
-    private let panel: NSPanel
     private var watch: AnyCancellable?
-    private weak var model: ViewerModel?
+    let viewer: ViewerModel
 
-    init(model: ViewerModel) {
-        self.model = model
-        panel = EscPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 560),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered, defer: true
-        )
-        panel.title = L("Info")
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = true
-        panel.contentView = NSHostingView(rootView: InfoView(controller: self))
-        if let frame = model.window?.frame {
-            panel.setFrameTopLeftPoint(NSPoint(x: frame.maxX + 12, y: frame.maxY))
-        }
-        watch = model.$currentURL.sink { [weak self] url in self?.load(url) }
+    init(viewer: ViewerModel) {
+        self.viewer = viewer
+        watch = viewer.$currentURL.sink { [weak self] url in self?.load(url) }
     }
 
-    var isVisible: Bool { panel.isVisible }
-    func show() { panel.orderFront(nil) }
-    func close() { panel.close() }
-
     func confirmStrip() {
-        guard let url = model?.currentURL, panel.attachedSheet == nil else { return }
+        guard let url = viewer.currentURL, let window = viewer.window, window.attachedSheet == nil else { return }
         let alert = NSAlert()
         alert.messageText = String(format: L("Remove all metadata from “%@”?"), url.lastPathComponent)
         alert.informativeText = L("Camera, date taken, location, download source, tags and other details will be deleted for good. File dates will be set to now.")
         alert.addButton(withTitle: L("Remove"))
         alert.addButton(withTitle: L("Cancel"))
         alert.buttons[0].hasDestructiveAction = true
-        alert.beginSheetModal(for: panel) { response in
+        alert.beginSheetModal(for: window) { response in
             guard response == .alertFirstButtonReturn else { return }
             Task { @MainActor in
                 let done = await Task.detached(priority: .userInitiated) {
                     (try? MetadataStripper.strip(url)) != nil
                 }.value
                 if done {
-                    self.model?.reloadIfShowing(url)
+                    self.viewer.reloadIfShowing(url)
                     self.load(url)
                 } else {
                     let failure = NSAlert()
                     failure.messageText = L("Couldn’t remove the metadata")
-                    failure.beginSheetModal(for: self.panel, completionHandler: nil)
+                    failure.beginSheetModal(for: window, completionHandler: nil)
                 }
             }
         }
@@ -76,62 +60,85 @@ final class InfoPanelController: ObservableObject {
     private func load(_ url: URL?) {
         guard let url else {
             sections = []
+            summary = ""
             location = nil
             return
         }
         Task {
             let result = await Task.detached(priority: .userInitiated) { PhotoInfoReader.read(url) }.value
+            guard viewer.currentURL == url else { return }
             sections = result.sections
+            summary = result.summary
             location = result.location
         }
     }
 }
 
-private final class EscPanel: NSPanel {
-    override func cancelOperation(_ sender: Any?) { close() }
-}
-
-private struct InfoView: View {
-    @ObservedObject var controller: InfoPanelController
+// Finder's preview pane: the photo's name and kind on top, details below, the one action at the bottom.
+struct InfoView: View {
+    @ObservedObject var info: InfoModel
 
     var body: some View {
         Form {
-            ForEach(controller.sections) { section in
+            if let url = info.viewer.currentURL {
+                Section {
+                    HStack(spacing: 12) {
+                        Thumbnail(url: url, side: 48, revision: info.viewer.revision)
+                            .frame(width: 48, height: 48)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(url.lastPathComponent)
+                                .font(.headline)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                            Text(info.summary).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            ForEach(info.sections) { section in
                 Section(section.title) {
                     ForEach(section.rows, id: \.label) { row in
                         LabeledContent(row.label) {
                             Text(row.value).textSelection(.enabled).multilineTextAlignment(.trailing)
                         }
                     }
-                    if section.id == "Location", let location = controller.location {
+                    if section.id == "Location", let location = info.location {
                         Button("Open in Maps") {
                             NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
                         }
                     }
                 }
             }
-            if !controller.sections.isEmpty {
-                Section {
-                    Button(role: .destructive) { controller.confirmStrip() } label: {
-                        Label("Remove All Metadata", systemImage: "eraser")
-                    }
-                }
-            }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 300, minHeight: 300)
+        .scrollContentBackground(.hidden)
+        .safeAreaInset(edge: .bottom) {
+            if !info.sections.isEmpty {
+                Button(role: .destructive) { info.confirmStrip() } label: {
+                    Text("Remove All Metadata…").frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+                .buttonBorderShape(.capsule)
+                .padding(16)
+            }
+        }
+        .frame(minWidth: 260)
     }
 }
 
 enum PhotoInfoReader {
-    nonisolated static func read(_ url: URL) -> (sections: [InfoSection], location: (lat: Double, lon: Double)?) {
+    // summary is Finder's line under the name: "PNG image – 9.4 MB".
+    nonisolated static func read(_ url: URL) -> (sections: [InfoSection], summary: String, location: (lat: Double, lon: Double)?) {
         var sections: [InfoSection] = []
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .contentModificationDateKey, .contentTypeKey])
         let dates = Date.FormatStyle(date: .long, time: .shortened)
 
-        var file: [(String, String)] = [("Name", url.lastPathComponent)]
-        if let type = values?.contentType { file.append(("Kind", type.localizedDescription ?? type.identifier)) }
-        if let size = values?.fileSize { file.append(("Size", ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))) }
+        let summary = [
+            values?.contentType.map { $0.localizedDescription ?? $0.identifier },
+            values?.fileSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) },
+        ].compactMap { $0 }.joined(separator: " – ")
+
+        var file: [(String, String)] = []
         if let created = values?.creationDate { file.append(("Created", created.formatted(dates))) }
         if let modified = values?.contentModificationDate { file.append(("Modified", modified.formatted(dates))) }
         file.append(("Folder", url.deletingLastPathComponent().path))
@@ -153,7 +160,7 @@ enum PhotoInfoReader {
 
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
-            return (sections, nil)
+            return (sections, summary, nil)
         }
         let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
@@ -204,7 +211,7 @@ enum PhotoInfoReader {
             if let altitude = gps[kCGImagePropertyGPSAltitude] as? Double { rows.append(("Altitude", String(format: L("%d m"), Int(altitude.rounded())))) }
             sections.append(InfoSection(title: "Location", rows: rows))
         }
-        return (sections, location)
+        return (sections, summary, location)
     }
 
     // EXIF writes "2024:07:15 18:42:03".

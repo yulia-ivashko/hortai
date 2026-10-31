@@ -5,11 +5,18 @@ struct ViewerView: View {
     @ObservedObject var model: ViewerModel
     @ObservedObject var zoom: ZoomController
 
-    private static let barSpace: CGFloat = 88
+    // The strip under the photo that holds the controls.
+    static let barSpace: CGFloat = 56
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            if model.currentURL == nil {
+            if model.currentURL == nil, !model.groups.isEmpty {
+                // Folders are open but hold no photos yet.
+                Text("No Photos")
+                    .font(.title3)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.currentURL == nil {
                 emptyState
             } else {
                 ZoomableImage(image: model.image, zoom: zoom, bottomInset: Self.barSpace) {
@@ -22,10 +29,11 @@ struct ViewerView: View {
                         .padding(.bottom, Self.barSpace)
                 }
                 ControlBar(model: model, zoom: zoom)
-                    .padding(.bottom, 18)
+                    .padding(.bottom, 9)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background { WindowGlass().ignoresSafeArea() }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             guard let provider = providers.first else { return false }
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -51,130 +59,147 @@ struct ViewerView: View {
     }
 }
 
-// The Windows 7 viewer's bottom row, in glass: zoom, size | previous, slideshow, next | rotate | delete.
+// Behind-window glass, like Quick Look: what's left of the window around the photo shows the desktop, blurred.
+struct WindowGlass: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+// Finder-style toolbar groups: zoom out, size, zoom in, fit to screen | previous, slideshow, next | rotate | delete.
 struct ControlBar: View {
     @ObservedObject var model: ViewerModel
     @ObservedObject var zoom: ZoomController
-    @State private var showsZoom = false
 
     var body: some View {
         let hasImage = model.image != nil
         GlassEffectContainer(spacing: 10) {
             HStack(spacing: 10) {
-                HStack(spacing: 6) {
-                    BarButton(symbol: "plus.magnifyingglass", help: "Zoom") { showsZoom.toggle() }
-                        .popover(isPresented: $showsZoom, arrowEdge: .top) { zoomPopover }
+                BarGroup {
+                    BarButton(symbol: "minus.magnifyingglass", help: "Zoom Out (⌘−)") { zoom.zoom(by: 0.8) }
+                    BarDivider()
                     BarButton(
-                        symbol: zoom.isFit ? "arrow.up.left.and.arrow.down.right" : "arrow.down.right.and.arrow.up.left",
+                        symbol: "1.magnifyingglass",
                         help: zoom.isFit ? (zoom.isSmall ? "Fill Window" : "Actual Size (⌘0)") : "Fit to Window (⌘9)"
                     ) {
                         zoom.toggleSize()
                     }
+                    BarDivider()
+                    BarButton(symbol: "plus.magnifyingglass", help: "Zoom In (⌘+)") { zoom.zoom(by: 1.25) }
+                    BarDivider()
+                    BarButton(symbol: "arrow.up.left.and.arrow.down.right", help: "Fit to Screen (⌘8)") { model.fitWindowToScreen() }
                 }
                 .disabled(!hasImage)
 
-                Spacer().frame(width: 12)
-
-                HStack(spacing: 6) {
+                BarGroup {
                     BarButton(symbol: "chevron.backward", help: "Previous (←)") { model.step(-1) }
-                    Button { model.startSlideshow() } label: {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                    }
-                    .buttonStyle(.glassProminent)
-                    .buttonBorderShape(.circle)
-                    .controlSize(.large)
-                    .help("Slideshow (F5)")
+                    BarButton(symbol: "play.fill", help: "Slideshow (F5)", prominent: true) { model.startSlideshow() }
                     BarButton(symbol: "chevron.forward", help: "Next (→)") { model.step(1) }
                 }
 
-                Spacer().frame(width: 12)
-
-                HStack(spacing: 6) {
+                BarGroup {
                     BarButton(symbol: "rotate.left", help: "Rotate Left (⌘L)") { model.rotate(clockwise: false) }
+                    BarDivider()
                     BarButton(symbol: "rotate.right", help: "Rotate Right (⌘R)") { model.rotate(clockwise: true) }
                 }
                 .disabled(!hasImage)
 
-                Spacer().frame(width: 12)
-
-                BarButton(symbol: "trash", help: "Move to Trash (Delete)", tint: .red) { model.confirmTrash() }
+                BarGroup {
+                    BarButton(symbol: "trash", help: "Move to Trash (Delete)") { model.confirmTrash() }
+                }
             }
         }
-    }
-
-    private var zoomPopover: some View {
-        VStack(spacing: 8) {
-            ZoomSlider(
-                value: Binding(
-                    get: { log2(Double(zoom.magnification)) },
-                    set: { zoom.set(CGFloat(pow(2, $0))) }
-                ),
-                range: log2(Double(ZoomController.range.lowerBound))...log2(Double(ZoomController.range.upperBound))
-            )
-            .frame(width: 220)
-            Text("\(Int((zoom.magnification * 100).rounded()))%")
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-        .padding(14)
     }
 }
 
-// Drawn by hand: the system slider's knob disappears against the dark popover.
-private struct ZoomSlider: View {
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-    private let knob: CGFloat = 18
+private let cellSize: CGFloat = 34
+
+private struct BarGroup<Content: View>: View {
+    @ViewBuilder let content: Content
 
     var body: some View {
-        GeometryReader { geo in
-            let track = max(geo.size.width - knob, 1)
-            let share = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
-            let offset = track * min(max(share, 0), 1)
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(.quaternary)
-                    .frame(width: track, height: 4)
-                    .offset(x: knob / 2)
-                Capsule()
-                    .fill(Color.accentColor)
-                    .frame(width: offset, height: 4)
-                    .offset(x: knob / 2)
-                Circle()
-                    .fill(.white)
-                    .shadow(color: .black.opacity(0.35), radius: 2, y: 1)
-                    .frame(width: knob, height: knob)
-                    .offset(x: offset)
-            }
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                let share = min(max((drag.location.x - knob / 2) / track, 0), 1)
-                value = range.lowerBound + Double(share) * (range.upperBound - range.lowerBound)
-            })
-        }
-        .frame(height: 22)
+        HStack(spacing: 0) { content }
+            .padding(2)
+            .glassEffect(.regular, in: Capsule())
+    }
+}
+
+private struct BarDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(.primary.opacity(0.18))
+            .frame(width: 1, height: 18)
     }
 }
 
 private struct BarButton: View {
     let symbol: String
     let help: String
-    var tint: Color? = nil
+    var prominent = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(tint ?? .primary)
-                .frame(width: 26, height: 26)
+                .font(.system(size: prominent ? 14 : 15, weight: prominent ? .semibold : .regular))
+                .offset(x: symbol == "play.fill" ? 1 : 0)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .controlSize(.large)
-        .help(L(help))
+        .buttonStyle(CellStyle(prominent: prominent))
+        .overlay(ToolTip(text: L(help)))
+    }
+}
+
+// SwiftUI's .help showed nothing on buttons inside the glass groups; AppKit's own tooltip does.
+private struct ToolTip: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> PassThroughView { PassThroughView() }
+    func updateNSView(_ view: PassThroughView, context: Context) { view.toolTip = text }
+
+    final class PassThroughView: NSView {
+        // Clicks go to the button underneath.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+// A bare glyph that gets a soft circle under the pointer; the main action is a filled circle.
+private struct CellStyle: ButtonStyle {
+    let prominent: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        Cell(configuration: configuration, prominent: prominent)
+    }
+
+    private struct Cell: View {
+        let configuration: ButtonStyleConfiguration
+        let prominent: Bool
+        @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.colorScheme) private var scheme
+        @State private var hovering = false
+
+        var body: some View {
+            let pressed = configuration.isPressed
+            // Solid colours: hierarchical styles turn grey on glass and the main button looked disabled.
+            let ink: Color = scheme == .dark ? .white : .black
+            configuration.label
+                .foregroundStyle(prominent ? (scheme == .dark ? Color.black : .white) : ink)
+                .frame(width: cellSize, height: cellSize)
+                .background {
+                    if prominent {
+                        Circle().fill(ink.opacity(pressed ? 0.75 : 1))
+                    } else {
+                        Circle().fill(ink.opacity(pressed ? 0.16 : hovering ? 0.08 : 0))
+                    }
+                }
+                .contentShape(Circle())
+                .opacity(isEnabled ? 1 : 0.35)
+                .onHover { hovering = $0 }
+        }
     }
 }

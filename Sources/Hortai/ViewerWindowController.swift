@@ -1,18 +1,22 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
-final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation {
+final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenuItemValidation, NSToolbarDelegate, NSToolbarItemValidation {
     let model = ViewerModel()
     var onClose: (() -> Void)?
+    private lazy var info = InfoModel(viewer: model)
+    private var split: ViewerSplitController!
 
     init(url: URL?) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 680),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        window.titlebarAppearsTransparent = true
         window.title = "Hortai"
         window.minSize = NSSize(width: 520, height: 380)
         window.tabbingMode = .disallowed
@@ -20,8 +24,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         super.init(window: window)
 
         window.delegate = self
-        window.contentView = NSHostingView(rootView: ViewerView(model: model, zoom: model.zoom))
+        split = ViewerSplitController(model: model, info: info)
+        window.contentViewController = split
+        let toolbar = NSToolbar(identifier: "HortaiViewer")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        // No "Icon and Text" menu on right-click: it relabels the buttons and changes nothing useful.
+        toolbar.allowsDisplayModeCustomization = false
+        window.toolbar = toolbar
+        window.titleVisibility = .hidden
+        window.toolbarStyle = .unified
         model.window = window
+        model.sidePanelsWidth = { [weak self] in self?.split.openPanelsWidth ?? 0 }
         if !window.setFrameUsingName("HortaiViewer") { window.center() }
         window.setFrameAutosaveName("HortaiViewer")
         if let url { model.open(url) }
@@ -30,7 +44,6 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     required init?(coder: NSCoder) { fatalError() }
 
     func windowWillClose(_ notification: Notification) {
-        infoPanel?.close()
         onClose?()
     }
 
@@ -61,6 +74,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
+        case #selector(setThumbnailStyle(_:)):
+            let current = ThumbnailStyle(rawValue: UserDefaults.standard.string(forKey: ThumbnailStyle.key) ?? "") ?? .imagesAndNames
+            item.state = ThumbnailStyle.allCases.firstIndex(of: current) == item.tag ? .on : .off
+            return true
         case #selector(openWith(_:)):
             return true
         case #selector(showNext(_:)), #selector(showPrevious(_:)), #selector(showInFinder(_:)), #selector(moveToTrash(_:)),
@@ -81,6 +98,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     @objc func zoomOut(_ sender: Any?) { model.zoom.zoom(by: 0.8) }
     @objc func actualSize(_ sender: Any?) { model.zoom.actualSize() }
     @objc func fitToWindow(_ sender: Any?) { model.zoom.fit() }
+    @objc func fitToScreen(_ sender: Any?) { model.fitWindowToScreen() }
     @objc func showInFinder(_ sender: Any?) { model.showInFinder() }
     @objc func copy(_ sender: Any?) { model.copyToPasteboard() }
     @objc func printPhoto(_ sender: Any?) { model.printPhoto() }
@@ -130,18 +148,73 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return menu
     }
 
-    // MARK: Info panel
+    // MARK: Side panels
 
-    private var infoPanel: InfoPanelController?
+    @objc func setThumbnailStyle(_ sender: NSMenuItem) {
+        guard ThumbnailStyle.allCases.indices.contains(sender.tag) else { return }
+        UserDefaults.standard.set(ThumbnailStyle.allCases[sender.tag].rawValue, forKey: ThumbnailStyle.key)
+    }
 
     @objc func showInfo(_ sender: Any?) {
-        if let infoPanel, infoPanel.isVisible {
-            infoPanel.close()
-            return
+        split.toggleInfo()
+    }
+
+    private static let infoItem = NSToolbarItem.Identifier("info")
+    private static let titleItem = NSToolbarItem.Identifier("title")
+    private static let thumbnailsItem = NSToolbarItem.Identifier("thumbnails")
+    private var sidebarButton: NSButton?
+    private var watch: AnyCancellable?
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [Self.thumbnailsItem, .sidebarTrackingSeparator, Self.titleItem, .flexibleSpace, Self.infoItem, .inspectorTrackingSeparator]
+    }
+
+    func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        item.itemIdentifier != Self.infoItem || model.currentURL != nil
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        toolbarDefaultItemIdentifiers(toolbar)
+    }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        if id == Self.thumbnailsItem {
+            // Right-click on it picks what the panel shows, the same choice as in the View menu.
+            let button = NSButton(image: NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: L("Show Sidebar"))!,
+                                  target: split, action: #selector(NSSplitViewController.toggleSidebar(_:)))
+            button.bezelStyle = .toolbar
+            button.toolTip = L("Show Sidebar")
+            let menu = NSMenu()
+            for (i, style) in ThumbnailStyle.allCases.enumerated() {
+                let entry = NSMenuItem(title: style.title, action: #selector(setThumbnailStyle(_:)), keyEquivalent: "")
+                entry.tag = i
+                entry.target = self
+                menu.addItem(entry)
+            }
+            button.menu = menu
+            button.isEnabled = !model.groups.isEmpty
+            sidebarButton = button
+            watch = model.$groups.sink { [weak self] groups in self?.sidebarButton?.isEnabled = !groups.isEmpty }
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.view = button
+            item.label = L("Show Sidebar")
+            return item
         }
-        let panel = infoPanel ?? InfoPanelController(model: model)
-        infoPanel = panel
-        panel.show()
+        if id == Self.titleItem {
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.view = NSHostingView(rootView: TitleView(model: model))
+            item.isBordered = false
+            return item
+        }
+        guard id == Self.infoItem else { return nil }
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: L("Get Info"))
+        item.label = L("Get Info")
+        item.toolTip = L("Get Info") + " (⌘I)"
+        item.action = #selector(showInfo(_:))
+        item.target = self
+        return item
     }
 
     @objc func copyPath(_ sender: Any?) { model.copyPath() }

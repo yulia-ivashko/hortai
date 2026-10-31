@@ -12,6 +12,11 @@ extension NSMenuItem {
         if let symbol { image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
     }
 
+    func tagged(_ value: Int) -> NSMenuItem {
+        tag = value
+        return self
+    }
+
     // Shown instead of the item above it while ⌥ is held.
     func alternate() -> NSMenuItem {
         isAlternate = true

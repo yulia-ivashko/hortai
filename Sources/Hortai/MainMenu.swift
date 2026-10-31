@@ -17,6 +17,8 @@ enum MainMenu {
 
         submenu(in: main, "File", [
             NSMenuItem("Open…", #selector(AppDelegate.openDocument(_:)), symbol: "folder", key: "o"),
+            NSMenuItem("Open in New Window…", #selector(AppDelegate.openInNewWindow(_:)), symbol: "macwindow.badge.plus", key: "o").alternate(),
+            NSMenuItem("Add Folder…", #selector(AppDelegate.addFolder(_:)), symbol: "folder.badge.plus", key: "o", modifiers: [.command, .shift]),
             NSMenuItem("Show in Finder", #selector(ViewerWindowController.showInFinder(_:)), symbol: "finder", key: "r", modifiers: [.command, .shift]),
             NSMenuItem("Get Info", #selector(ViewerWindowController.showInfo(_:)), symbol: "info.circle", key: "i"),
             .separator(),
@@ -36,6 +38,11 @@ enum MainMenu {
             NSMenuItem("Zoom Out", #selector(ViewerWindowController.zoomOut(_:)), symbol: "minus.magnifyingglass", key: "-"),
             NSMenuItem("Actual Size", #selector(ViewerWindowController.actualSize(_:)), symbol: "1.magnifyingglass", key: "0"),
             NSMenuItem("Fit to Window", #selector(ViewerWindowController.fitToWindow(_:)), symbol: "arrow.down.right.and.arrow.up.left", key: "9"),
+            NSMenuItem("Fit to Screen", #selector(ViewerWindowController.fitToScreen(_:)), symbol: "arrow.up.left.and.arrow.down.right", key: "8"),
+            .separator(),
+            NSMenuItem("Thumbnails", #selector(ViewerWindowController.setThumbnailStyle(_:))).tagged(0),
+            NSMenuItem("Thumbnails and Names", #selector(ViewerWindowController.setThumbnailStyle(_:))).tagged(1),
+            NSMenuItem("List", #selector(ViewerWindowController.setThumbnailStyle(_:))).tagged(2),
             .separator(),
             NSMenuItem("Slideshow", #selector(ViewerWindowController.startSlideshow(_:)), symbol: "play", key: key(NSF5FunctionKey), modifiers: []),
             NSMenuItem("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), key: "f", modifiers: [.command, .control]),

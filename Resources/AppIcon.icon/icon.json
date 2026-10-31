@@ -1,0 +1,23 @@
+{
+  "fill-specializations": [
+    { "value": { "automatic-gradient": "srgb:0.93000,0.93000,0.94000,1.00000" } },
+    { "appearance": "dark", "value": { "solid": "srgb:0.13000,0.13000,0.14000,1.00000" } }
+  ],
+  "groups": [
+    {
+      "layers": [
+        { "image-name": "lens.png", "name": "lens", "glass-specializations": [ { "value": false } ] }
+      ],
+      "shadow": { "kind": "neutral", "opacity": 0.4 },
+      "translucency": { "enabled": false, "value": 0 }
+    },
+    {
+      "layers": [
+        { "image-name": "ring.png", "name": "ring", "glass-specializations": [ { "value": false } ] }
+      ],
+      "shadow": { "kind": "neutral", "opacity": 0.5 },
+      "translucency": { "enabled": false, "value": 0 }
+    }
+  ],
+  "supported-platforms": { "squares": "shared" }
+}
