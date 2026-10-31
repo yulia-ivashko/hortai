@@ -195,6 +195,33 @@ enum PhotoInfoReader {
         let exif = props[kCGImagePropertyExifDictionary] as? [CFString: Any] ?? [:]
         let tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] ?? [:]
         let gps = props[kCGImagePropertyGPSDictionary] as? [CFString: Any] ?? [:]
+        let iptc = props[kCGImagePropertyIPTCDictionary] as? [CFString: Any] ?? [:]
+        let aux = props[kCGImagePropertyExifAuxDictionary] as? [CFString: Any] ?? [:]
+
+        // What people write about a photo goes first: title, caption, keywords, who made it.
+        func text(_ value: Any?) -> String? {
+            let string = (value as? [String])?.joined(separator: ", ") ?? value as? String
+            let trimmed = string?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed?.isEmpty == false ? trimmed : nil
+        }
+        var about: [(String, String)] = []
+        let title = text(iptc[kCGImagePropertyIPTCObjectName])
+        let headline = text(iptc[kCGImagePropertyIPTCHeadline])
+        if let title = title ?? headline { about.append(("Title", title)) }
+        if let headline, title != nil, headline != title { about.append(("Headline", headline)) }
+        if let caption = text(iptc[kCGImagePropertyIPTCCaptionAbstract]) ?? text(tiff[kCGImagePropertyTIFFImageDescription]) {
+            about.append(("Description", caption))
+        }
+        if let keywords = text(iptc[kCGImagePropertyIPTCKeywords]) { about.append(("Keywords", keywords)) }
+        if let author = text(iptc[kCGImagePropertyIPTCByline]) ?? text(tiff[kCGImagePropertyTIFFArtist]) { about.append(("Author", author)) }
+        let credit = text(iptc[kCGImagePropertyIPTCCredit])
+        if let credit { about.append(("Credit", credit)) }
+        if let source = text(iptc[kCGImagePropertyIPTCSource]), source != credit { about.append(("Source", source)) }
+        if let rights = text(iptc[kCGImagePropertyIPTCCopyrightNotice]) ?? text(tiff[kCGImagePropertyTIFFCopyright]) {
+            about.append(("Copyright", rights))
+        }
+        if let note = text(exif[kCGImagePropertyExifUserComment]) { about.append(("Comment", note)) }
+        if !about.isEmpty { sections.insert(InfoSection(title: "Description", rows: about), at: 0) }
 
         var image: [(String, String)] = []
         if var width = props[kCGImagePropertyPixelWidth] as? Int, var height = props[kCGImagePropertyPixelHeight] as? Int {
@@ -217,7 +244,8 @@ enum PhotoInfoReader {
             let text = camera.count == 2 && camera[1].hasPrefix(camera[0]) ? camera[1] : camera.joined(separator: " ")
             shot.append(("Camera", text))
         }
-        if let lens = exif[kCGImagePropertyExifLensModel] as? String { shot.append(("Lens", lens)) }
+        // Nikon and others put the lens only in the auxiliary block.
+        if let lens = text(exif[kCGImagePropertyExifLensModel]) ?? text(aux[kCGImagePropertyExifAuxLensModel]) { shot.append(("Lens", lens)) }
         if let time = exif[kCGImagePropertyExifExposureTime] as? Double, time > 0 {
             shot.append(("Exposure", time >= 1 ? String(format: L("%g s"), time) : String(format: L("1/%d s"), Int((1 / time).rounded()))))
         }
@@ -228,6 +256,15 @@ enum PhotoInfoReader {
             if let full = exif[kCGImagePropertyExifFocalLenIn35mmFilm] as? Int { text += " " + String(format: L("(%d mm equiv.)"), full) }
             shot.append(("Focal length", text))
         }
+        if let bias = exif[kCGImagePropertyExifExposureBiasValue] as? Double {
+            shot.append(("Exposure bias", abs(bias) < 0.05 ? "0 EV" : String(format: "%+.1f EV", bias).replacingOccurrences(of: "-", with: "−")))
+        }
+        let programs = [1: "Manual", 2: "Program", 3: "Aperture priority", 4: "Shutter priority",
+                        5: "Creative", 6: "Action", 7: "Portrait", 8: "Landscape"]
+        if let mode = (exif[kCGImagePropertyExifExposureProgram] as? Int).flatMap({ programs[$0] }) { shot.append(("Mode", L(mode))) }
+        let meterings = [1: "Average", 2: "Center-weighted", 3: "Spot", 4: "Multi-spot", 5: "Matrix", 6: "Partial"]
+        if let metering = (exif[kCGImagePropertyExifMeteringMode] as? Int).flatMap({ meterings[$0] }) { shot.append(("Metering", L(metering))) }
+        if let balance = exif[kCGImagePropertyExifWhiteBalance] as? Int { shot.append(("White balance", L(balance == 1 ? "Manual" : "Auto"))) }
         if let flash = exif[kCGImagePropertyExifFlash] as? Int { shot.append(("Flash", flash & 1 == 1 ? L("Fired") : L("Off"))) }
         if let software = tiff[kCGImagePropertyTIFFSoftware] as? String { shot.append(("Software", software)) }
         if !shot.isEmpty { sections.append(InfoSection(title: "Shooting", rows: shot)) }
