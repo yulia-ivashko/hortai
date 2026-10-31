@@ -171,6 +171,10 @@ enum PhotoInfoReader {
         if let size = values?.fileSize { file.append(("Size", ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))) }
         if let created = values?.creationDate { file.append(("Created", created.formatted(dates))) }
         if let modified = values?.contentModificationDate { file.append(("Modified", modified.formatted(dates))) }
+        // When the file arrived in its folder: a download or a copy, often more telling than Created.
+        if let added = (try? url.resourceValues(forKeys: [.addedToDirectoryDateKey]))?.addedToDirectoryDate {
+            file.append(("Added", added.formatted(dates)))
+        }
         file.append(("Folder", (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath))
         if let tags = (try? url.resourceValues(forKeys: [.tagNamesKey]))?.tagNames, !tags.isEmpty {
             file.append(("Tags", tags.joined(separator: ", ")))
