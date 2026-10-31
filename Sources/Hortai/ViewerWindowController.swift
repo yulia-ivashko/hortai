@@ -59,7 +59,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     // Plain keys the Windows viewer answered to; menu shortcuts handle the rest.
     func handleKey(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
-        guard modifiers.isEmpty else { return false }
+        // While a name is being typed, Backspace, arrows and Esc belong to the text.
+        guard modifiers.isEmpty, !isEditingText else { return false }
         if event.keyCode == 53, let window {
             // Esc leaves full screen first, then closes the window.
             if window.styleMask.contains(.fullScreen) {
@@ -81,7 +82,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return true
     }
 
+    // A text field has the keyboard: the rename field in the title.
+    private var isEditingText: Bool { window?.firstResponder is NSText }
+
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        // ⌘⌫ and the bare arrows are these items' shortcuts; while typing a name they must reach the text.
+        let typingKeys = [#selector(showNext(_:)), #selector(showPrevious(_:)), #selector(moveToTrash(_:)),
+                          #selector(rotateLeft(_:)), #selector(rotateRight(_:))]
+        if isEditingText, let action = item.action, typingKeys.contains(action) { return false }
         switch item.action {
         case #selector(setThumbnailStyle(_:)):
             let current = ThumbnailStyle(rawValue: UserDefaults.standard.string(forKey: ThumbnailStyle.key) ?? "") ?? .imagesAndNames
@@ -329,11 +337,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             item.minSize = NSSize(width: 60, height: 30)
             item.maxSize = NSSize(width: idealTitleWidth, height: 30)
             titleItemRef = item
-            titleWatch = model.$currentURL.combineLatest(model.$groups, model.$hasJumped).sink { [weak self] _, _, _ in
+            titleWatch = model.$currentURL.combineLatest(model.$groups, model.$hasJumped, model.$isRenaming).sink { [weak self] _, _, _, renaming in
                 // After the model has published the new name.
                 DispatchQueue.main.async {
                     guard let self, let item = self.titleItemRef else { return }
-                    item.maxSize = NSSize(width: max(60, self.idealTitleWidth), height: 30)
+                    // The rename field needs room to type a longer name.
+                    item.maxSize = NSSize(width: max(renaming ? 320 : 60, self.idealTitleWidth), height: 30)
                 }
             }
             item.isBordered = false

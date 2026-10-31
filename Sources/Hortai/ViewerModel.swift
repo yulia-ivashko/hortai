@@ -66,6 +66,38 @@ final class ViewerModel: ObservableObject {
         show(target)
     }
 
+    // The title's name is being edited; the toolbar gives it more room meanwhile.
+    @Published var isRenaming = false
+
+    // Renames the shown photo in place, like Finder. A name typed without an extension keeps the old one.
+    func rename(to typed: String) {
+        guard let url = currentURL else { return }
+        var name = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != url.lastPathComponent else { return }
+        guard !name.contains("/"), !name.hasPrefix(".") else {
+            showError(L("A name can’t contain “/” or start with a dot."))
+            return
+        }
+        if (name as NSString).pathExtension.isEmpty, !url.pathExtension.isEmpty { name += "." + url.pathExtension }
+        let target = url.deletingLastPathComponent().appending(path: name).standardizedFileURL
+        // Only a case change may land on the same file on a case-insensitive disk.
+        if FileManager.default.fileExists(atPath: target.path), target.path.lowercased() != url.path.lowercased() {
+            showError(String(format: L("The name “%@” is already taken."), name))
+            return
+        }
+        do {
+            try FileManager.default.moveItem(at: url, to: target)
+        } catch {
+            showError(String(format: L("Couldn’t rename “%@”"), url.lastPathComponent))
+            return
+        }
+        cache[target] = cache.removeValue(forKey: url)
+        stamps[target] = stamps.removeValue(forKey: url)
+        ThumbnailCache.forget(url)
+        rescan()
+        show(target)
+    }
+
     // Takes a folder out of the sidebar; the first one opened can go too.
     func remove(_ folder: URL) {
         let index = currentURL.flatMap(indexOf) ?? lastIndex

@@ -241,10 +241,15 @@ struct ThumbnailList: View {
 struct TitleView: View {
     @ObservedObject var model: ViewerModel
 
+    @State private var editing = false
+    @State private var draft = ""
+    @State private var selection: TextSelection?
+    @FocusState private var focused: Bool
+
     var body: some View {
         if let url = model.currentURL {
-            title(url.lastPathComponent, path: url.deletingLastPathComponent())
-                .help(url.path)
+            title(url.lastPathComponent, path: url.deletingLastPathComponent(), renamable: true)
+                .help(editing ? "" : url.path)
         } else if let folder = model.groups.first?.folder {
             title(folder.lastPathComponent, path: folder.deletingLastPathComponent())
                 .help(folder.path)
@@ -253,18 +258,61 @@ struct TitleView: View {
         }
     }
 
-    private func title(_ name: String, path: URL) -> some View {
+    private func title(_ name: String, path: URL, renamable: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(name)
-                .font(.headline)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if editing && renamable {
+                // Like Finder: the name without its extension comes selected, Return keeps it, Esc or a click away undoes.
+                TextField("", text: $draft, selection: $selection)
+                    .textFieldStyle(.plain)
+                    .font(.headline)
+                    .focused($focused)
+                    .frame(minWidth: 180)
+                    // A field's white box and focus ring round the text, which itself stays where the name was.
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: .textBackgroundColor)))
+                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(Color.accentColor.opacity(0.6), lineWidth: 2))
+                    .padding(.horizontal, -4)
+                    .padding(.vertical, -1)
+                    .onSubmit { finish(save: true) }
+                    .onExitCommand { finish(save: false) }
+                    .onChange(of: focused) { _, now in if !now { finish(save: false) } }
+                    .onChange(of: model.currentURL) { _, _ in finish(save: false) }
+            } else {
+                Text(name)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .contentShape(Rectangle())
+                    .onTapGesture { if renamable { startRenaming(name) } }
+            }
             PathLine(levels: Self.levels(of: path)) { model.jump(to: $0) }
         }
         .frame(minWidth: 60, alignment: .leading)
         // Lines up with the photo's left edge instead of hugging the sidebar; next to back and forward it sits
         // as close as Finder's title does.
         .padding(.leading, model.hasJumped ? 3 : ImageScrollView.sideMargin)
+    }
+
+    private func startRenaming(_ name: String) {
+        draft = name
+        editing = true
+        model.isRenaming = true
+        // Focusing selects everything; the name alone is selected a turn later.
+        let stem = (name as NSString).deletingPathExtension
+        DispatchQueue.main.async {
+            focused = true
+            DispatchQueue.main.async {
+                selection = TextSelection(range: draft.startIndex..<draft.index(draft.startIndex, offsetBy: stem.count))
+            }
+        }
+    }
+
+    private func finish(save: Bool) {
+        guard editing else { return }
+        editing = false
+        model.isRenaming = false
+        if save { model.rename(to: draft) }
     }
 
     // ~/Pictures/From Orbit as [~, Pictures, From Orbit], each with the folder it stands for.
