@@ -75,6 +75,15 @@ final class InfoModel: ObservableObject {
 // them on one line, small section headings. The title sits in the band beside the ⓘ button, the one action at the bottom.
 struct InfoView: View {
     @ObservedObject var info: InfoModel
+    // Sections folded by a click on their heading, as in Finder's Get Info; kept for every photo.
+    @AppStorage("FoldedInfoSections") private var foldedList = ""
+    private var folded: Set<String> { Set(foldedList.split(separator: ",").map(String.init)) }
+
+    private func toggle(_ id: String) {
+        var set = folded
+        if set.contains(id) { set.remove(id) } else { set.insert(id) }
+        withAnimation(.easeOut(duration: 0.15)) { foldedList = set.sorted().joined(separator: ",") }
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -94,13 +103,9 @@ struct InfoView: View {
                     }.max() ?? 0
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(info.sections.enumerated()), id: \.element.id) { index, section in
-                            Text(section.title)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .padding(.top, index == 0 ? 0 : 12)
-                                .padding(.bottom, 3)
-                                .padding(.leading, 8)
-                            ForEach(Array(section.rows.enumerated()), id: \.element.label) { row, item in
+                            let open = !folded.contains(section.id)
+                            SectionHeader(title: section.title, open: open, first: index == 0) { toggle(section.id) }
+                            ForEach(Array((open ? section.rows : []).enumerated()), id: \.element.label) { row, item in
                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                                     Text(item.label)
                                         .foregroundStyle(.secondary)
@@ -115,7 +120,7 @@ struct InfoView: View {
                                 .padding(.vertical, 3)
                                 .background(RoundedRectangle(cornerRadius: 6).fill(row % 2 == 1 ? Color.primary.opacity(0.05) : .clear))
                             }
-                            if section.id == "Location", let location = info.location {
+                            if open, section.id == "Location", let location = info.location {
                                 Button("Open in Maps") {
                                     NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
                                 }
@@ -246,5 +251,34 @@ enum PhotoInfoReader {
         parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
         guard let date = parser.date(from: raw) else { return raw }
         return date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened))
+    }
+}
+
+// Finder's Get Info heading: a chevron and the name in plain text, a line above every section but the first.
+private struct SectionHeader: View {
+    let title: String
+    let open: Bool
+    let first: Bool
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !first { Divider() }
+            Button(action: action) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                    Text(title)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 6)
+        }
+        .padding(.top, first ? 0 : 10)
+        .padding(.bottom, 4)
     }
 }
