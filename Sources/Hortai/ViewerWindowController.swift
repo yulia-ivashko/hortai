@@ -384,10 +384,7 @@ final class SolidBackground: NSView {
 }
 
 extension NSColor {
-    // Opaque, in the light grey the see-through glass showed (measured); the panels stand out from it in both themes.
-    static let backdrop = NSColor(name: "HortaiBackdrop") { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 40 / 255, green: 40 / 255, blue: 42 / 255, alpha: 1)
-            : NSColor(srgbRed: 231 / 255, green: 230 / 255, blue: 229 / 255, alpha: 1)
-    }
+    // The window's own background, as in System Settings: white in light mode, the floating panels set apart by
+    // their shade and shadow. Earlier a warm grey measured through the see-through glass looked dirty.
+    static let backdrop = NSColor.windowBackgroundColor
 }
