@@ -88,41 +88,44 @@ struct InfoView: View {
                     .padding(.bottom, 8)
                     .frame(height: geometry.safeAreaInsets.top)
                 ScrollView {
-                    // One grid for every section, so all values start at the same line.
-                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 4) {
+                    // Every other row shaded, like Finder's list; one label width for all sections, so values line up.
+                    let labelWidth = info.sections.flatMap(\.rows).map {
+                        ceil(($0.label as NSString).size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .callout)]).width)
+                    }.max() ?? 0
+                    VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(info.sections.enumerated()), id: \.element.id) { index, section in
-                            GridRow {
-                                Text(section.title)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                                    .padding(.top, index == 0 ? 0 : 10)
-                                    .padding(.bottom, 1)
-                                    .gridCellColumns(2)
-                            }
-                            ForEach(section.rows, id: \.label) { row in
-                                GridRow {
-                                    Text(row.label)
+                            Text(section.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.top, index == 0 ? 0 : 12)
+                                .padding(.bottom, 3)
+                                .padding(.leading, 8)
+                            ForEach(Array(section.rows.enumerated()), id: \.element.label) { row, item in
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(item.label)
                                         .foregroundStyle(.secondary)
-                                        .gridColumnAlignment(.trailing)
-                                    Text(row.value)
+                                        .frame(width: labelWidth, alignment: .trailing)
+                                    Text(item.value)
                                         .textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                                 .font(.callout)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(row % 2 == 1 ? Color.primary.opacity(0.05) : .clear))
                             }
                             if section.id == "Location", let location = info.location {
-                                GridRow {
-                                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                                    Button("Open in Maps") {
-                                        NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
-                                    }
-                                    .controlSize(.small)
+                                Button("Open in Maps") {
+                                    NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
                                 }
+                                .controlSize(.small)
+                                .padding(.leading, labelWidth + 16)
+                                .padding(.top, 4)
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, 10)
                     .padding(.top, 4)
                     .padding(.bottom, 16)
                 }
