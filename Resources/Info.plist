@@ -29,6 +29,8 @@
 	<string>AppIcon</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Iuliia Ivashko</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSHighResolutionCapable</key>

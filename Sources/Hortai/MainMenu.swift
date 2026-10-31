@@ -6,7 +6,7 @@ enum MainMenu {
         let main = NSMenu()
 
         submenu(in: main, "Hortai", [
-            NSMenuItem("About Hortai", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            NSMenuItem("About Hortai", #selector(AppDelegate.showAbout(_:))),
             .separator(),
             NSMenuItem("Hide Hortai", #selector(NSApplication.hide(_:)), key: "h"),
             NSMenuItem("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), key: "h", modifiers: [.command, .option]),
