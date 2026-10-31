@@ -38,6 +38,10 @@ English and Ukrainian, following the system language. Light and dark.
 
 Native Swift (AppKit + SwiftUI), Apple silicon, macOS 26 or later.
 
+## Install
+
+Download `Hortai-<version>.zip` from [Releases](https://github.com/yulia-ivashko/hortai/releases/latest), unzip it and move Hortai to Applications. The current builds are not notarised yet: the first time you open Hortai, macOS says it can't verify it. Open System Settings → Privacy & Security, click Open Anyway, and from then on it opens as usual.
+
 ## Build
 
 ```sh
