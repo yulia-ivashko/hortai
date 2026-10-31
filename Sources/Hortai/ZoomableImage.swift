@@ -16,16 +16,23 @@ final class ZoomController: ObservableObject {
     func set(_ value: CGFloat) { scrollView?.zoom(to: value) }
     func fit() { scrollView?.fit() }
     func actualSize() { scrollView?.zoom(to: 1) }
+    func fill() {
+        guard let scrollView, let value = scrollView.fillMagnification else { return }
+        scrollView.zoom(to: value)
+    }
 
-    // The size button: big photos switch fit ↔ real size, small ones fit ↔ stretched to the window.
+    var isActualSize: Bool { abs(magnification - 1) < 0.005 }
+
+    // The "1" button: any zoom other than real size goes to real size; from real size, back to the window
+    // (small photos, which already fit at real size, stretch to fill it).
     func toggleSize() {
         guard let scrollView else { return }
-        if !isFit {
-            scrollView.fit()
-        } else if isSmall, let fill = scrollView.fillMagnification {
+        if !isActualSize {
+            scrollView.zoom(to: 1)
+        } else if isFit, isSmall, let fill = scrollView.fillMagnification {
             scrollView.zoom(to: fill)
         } else {
-            scrollView.zoom(to: 1)
+            scrollView.fit()
         }
     }
 
@@ -110,11 +117,14 @@ final class ImageScrollView: NSScrollView {
         fillMagnification.map { min($0, 1) }
     }
 
+    static let sideMargin: CGFloat = 16
+
     // Scale at which the photo fills the window, small photos stretched.
     var fillMagnification: CGFloat? {
         let size = imageView.frame.size
-        let width = clip.frame.width
-        let height = clip.frame.height - clip.bottomInset
+        // A fitted photo keeps some air from the side panels and the window edges.
+        let width = clip.frame.width - 2 * Self.sideMargin
+        let height = clip.frame.height - clip.bottomInset - Self.sideMargin
         guard size.width > 0, size.height > 0, width > 0, height > 0 else { return nil }
         return min(width / size.width, height / size.height)
     }

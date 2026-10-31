@@ -79,47 +79,60 @@ struct InfoView: View {
     @ObservedObject var info: InfoModel
 
     var body: some View {
-        Form {
-            if let url = info.viewer.currentURL {
-                Section {
-                    HStack(spacing: 12) {
-                        Thumbnail(url: url, side: 48, revision: info.viewer.revision)
-                            .frame(width: 48, height: 48)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(url.lastPathComponent)
-                                .font(.headline)
-                                .lineLimit(2)
-                                .textSelection(.enabled)
-                            Text(info.summary).foregroundStyle(.secondary)
+        // The button sits under the list, not over it, so rows never show through.
+        VStack(spacing: 0) {
+            Form {
+                if let url = info.viewer.currentURL {
+                    Section {
+                        HStack(spacing: 12) {
+                            Thumbnail(url: url, side: 48, revision: info.viewer.revision)
+                                .frame(width: 48, height: 48)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(url.lastPathComponent)
+                                    .font(.headline)
+                                    .lineLimit(2)
+                                    .textSelection(.enabled)
+                                Text(info.summary).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                ForEach(info.sections) { section in
+                    Section(section.title) {
+                        ForEach(section.rows, id: \.label) { row in
+                            LabeledContent(row.label) {
+                                Text(row.value).textSelection(.enabled).multilineTextAlignment(.trailing)
+                            }
+                        }
+                        if section.id == "Location", let location = info.location {
+                            Button("Open in Maps") {
+                                NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
+                            }
                         }
                     }
                 }
             }
-            ForEach(info.sections) { section in
-                Section(section.title) {
-                    ForEach(section.rows, id: \.label) { row in
-                        LabeledContent(row.label) {
-                            Text(row.value).textSelection(.enabled).multilineTextAlignment(.trailing)
-                        }
-                    }
-                    if section.id == "Location", let location = info.location {
-                        Button("Open in Maps") {
-                            NSWorkspace.shared.open(URL(string: "maps://?ll=\(location.lat),\(location.lon)&q=Photo")!)
-                        }
-                    }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            // The toolbar band above holds the ⓘ button, like the traffic lights above the left panel;
+            // the details start right under it instead of sliding beneath it.
+            .scrollEdgeEffectHidden(true, for: .top)
+            // Rows fade out before the button instead of ending on a hard edge.
+            .mask {
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 28)
                 }
             }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .safeAreaInset(edge: .bottom) {
             if !info.sections.isEmpty {
                 Button(role: .destructive) { info.confirmStrip() } label: {
                     Text("Remove All Metadata…").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
                 .buttonBorderShape(.capsule)
-                .padding(16)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+                .padding(.top, 4)
             }
         }
         .frame(minWidth: 260)

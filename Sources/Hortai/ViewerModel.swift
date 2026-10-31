@@ -67,6 +67,57 @@ final class ViewerModel: ObservableObject {
         if files.isEmpty { clear() } else { show(files[min(index, files.count - 1)]) }
     }
 
+    // MARK: Back and forward
+
+    // What the window showed: its folders and photo. A click on the title's path leaves one behind, like Finder.
+    struct Place: Equatable {
+        let folders: [URL]
+        let photo: URL?
+
+        // The folder Finder would name in its back menu.
+        var folder: URL? { photo?.deletingLastPathComponent() ?? folders.first }
+    }
+
+    @Published private(set) var backList: [Place] = []
+    @Published private(set) var forwardList: [Place] = []
+    // Back and forward appear with the first jump along the path and stay for the window's life.
+    @Published private(set) var hasJumped = false
+
+    private var here: Place { Place(folders: groups.map(\.folder), photo: currentURL) }
+
+    // Opens a folder from the title's path in place of the open ones.
+    func jump(to folder: URL) {
+        backList.append(here)
+        forwardList = []
+        hasJumped = true
+        open(folder)
+    }
+
+    // steps > 1 comes from the back and forward menus, which skip straight to an older place.
+    func goBack(_ steps: Int = 1) {
+        guard steps >= 1, steps <= backList.count else { return }
+        forwardList.append(here)
+        for _ in 1..<steps { forwardList.append(backList.removeLast()) }
+        visit(backList.removeLast())
+    }
+
+    func goForward(_ steps: Int = 1) {
+        guard steps >= 1, steps <= forwardList.count else { return }
+        backList.append(here)
+        for _ in 1..<steps { backList.append(forwardList.removeLast()) }
+        visit(forwardList.removeLast())
+    }
+
+    private func visit(_ place: Place) {
+        setFolders(place.folders.filter { FileManager.default.fileExists(atPath: $0.path) })
+        guard let target = place.photo.flatMap({ p in files.first { $0.path == p.path } }) ?? files.first else {
+            clear()
+            return
+        }
+        shapesWindowOnLoad = true
+        show(target)
+    }
+
     // Brings back the folders and photo of the last session.
     func restore(folders: [URL], photo: URL?) {
         setFolders(folders.filter { FileManager.default.fileExists(atPath: $0.path) })
@@ -153,10 +204,12 @@ final class ViewerModel: ObservableObject {
     }
 
     // The window grows or shrinks so the photo is as big as the screen allows, never past its real size.
+    // The window grows to the biggest size the screen allows at the photo's proportions, and the photo fills it,
+    // small photos enlarged too. Actual Size is the other button: one photo pixel per screen pixel.
     func fitWindowToScreen() {
         guard let image else { return }
         resizeWindow(to: image, wholeScreen: true)
-        zoom.fit()
+        zoom.fill()
     }
 
     private func resizeWindow(to image: CGImage, wholeScreen: Bool) {
@@ -167,13 +220,20 @@ final class ViewerModel: ObservableObject {
                 ?? NSScreen.main else { return }
         let scale = screen.backingScaleFactor
         let photo = NSSize(width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
-        let chrome = window.frame.height - window.contentLayoutRect.height + ViewerView.barSpace
-        let sides = sidePanelsWidth()
+        let margin = ImageScrollView.sideMargin
+        let chrome = window.frame.height - window.contentLayoutRect.height + ViewerView.barSpace + margin
+        let sides = sidePanelsWidth() + 2 * margin
         let visible = screen.visibleFrame
         let room = wholeScreen ? visible.width : window.frame.width
-        let fit = min(1, (room - sides) / photo.width, (visible.height - chrome) / photo.height)
-        let width = max(photo.width * fit + sides, window.minSize.width)
-        let height = max(photo.height * fit + chrome, window.minSize.height)
+        // A new photo is never blown up past its real size; the screen fit may enlarge it.
+        let fit = min(wholeScreen ? .infinity : 1, (room - sides) / photo.width, (visible.height - chrome) / photo.height)
+        var width = max(photo.width * fit + sides, window.minSize.width)
+        var height = max(photo.height * fit + chrome, window.minSize.height)
+        if wholeScreen {
+            // Only ever grows: a window already as big as the screen keeps its size, and the photo fills it.
+            width = min(max(width, window.frame.width), visible.width)
+            height = min(max(height, window.frame.height), visible.height)
+        }
         // The top-left corner stays put, as when you drag a window bigger; it moves only to stay on screen.
         var frame = NSRect(x: window.frame.minX, y: window.frame.maxY - height, width: width, height: height)
         frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - width)

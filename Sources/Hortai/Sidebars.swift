@@ -84,16 +84,21 @@ private struct FolderHeader: View {
             Text(FileManager.default.displayName(atPath: folder.path))
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 4)
-            Button(action: remove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 18, height: 18)
-                    .background(Circle().fill(.primary.opacity(0.1)))
+        }
+        // The × floats over the row's end, so its empty slot never squeezes the name.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.trailing, hovering ? 24 : 0)
+        .overlay(alignment: .trailing) {
+            if hovering {
+                Button(action: remove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(.primary.opacity(0.1)))
+                }
+                .buttonStyle(.plain)
+                .help(L("Remove from Sidebar"))
             }
-            .buttonStyle(.plain)
-            .opacity(hovering ? 1 : 0)
-            .help(L("Remove from Sidebar"))
         }
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(.secondary)
@@ -114,59 +119,84 @@ struct ThumbnailList: View {
     @State private var collapsed: Set<URL> = []
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: style == .names ? 0 : 4) {
-                    ForEach(model.groups) { group in
-                        FolderHeader(folder: group.folder, isCollapsed: collapsed.contains(group.folder)) {
-                            withAnimation(.snappy) {
-                                if collapsed.contains(group.folder) { collapsed.remove(group.folder) } else { collapsed.insert(group.folder) }
+        // The + sits under the list, not over it; the list fades out just above it.
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: style == .names ? 0 : 6) {
+                        ForEach(model.groups) { group in
+                            FolderHeader(folder: group.folder, isCollapsed: collapsed.contains(group.folder)) {
+                                withAnimation(.snappy) {
+                                    if collapsed.contains(group.folder) { collapsed.remove(group.folder) } else { collapsed.insert(group.folder) }
+                                }
+                            } remove: {
+                                model.remove(group.folder)
                             }
-                        } remove: {
-                            model.remove(group.folder)
-                        }
-                        if !collapsed.contains(group.folder) {
-                            if group.files.isEmpty {
-                                Text("No Photos")
-                                    .font(.callout)
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 28)
-                                    .padding(.vertical, 6)
-                            }
-                            ForEach(group.files, id: \.self) { url in
-                                cell(url)
+                            if !collapsed.contains(group.folder) {
+                                if group.files.isEmpty {
+                                    Text("No Photos")
+                                        .font(.callout)
+                                        .foregroundStyle(.tertiary)
+                                        .padding(.horizontal, 28)
+                                        .padding(.vertical, 6)
+                                }
+                                ForEach(group.files, id: \.self) { url in
+                                    cell(url)
+                                }
                             }
                         }
                     }
+                    .padding(.leading, style == .names ? 8 : 14)
+                    .padding(.trailing, style == .names ? 12 : 18)
+                    .padding(.vertical, style == .names ? 8 : 10)
                 }
-                .padding(style == .names ? 8 : 10)
-            }
-            // A folder dropped here joins the ones already open.
-            .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                for provider in providers {
-                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                        guard let url else { return }
-                        DispatchQueue.main.async { model.add(url) }
+                // A folder dropped here joins the ones already open.
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    for provider in providers {
+                        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                            guard let url else { return }
+                            DispatchQueue.main.async { model.add(url) }
+                        }
                     }
+                    return true
                 }
-                return true
-            }
-            .contextMenu {
-                Picker(selection: $style) {
-                    ForEach(ThumbnailStyle.allCases, id: \.self) { Text($0.title) }
-                } label: { EmptyView() }
-                .pickerStyle(.inline)
-            }
-            .onChange(of: model.currentURL, initial: true) { _, url in
-                guard let url else { return }
-                // Arrows can walk into a folded group; open it so the shown photo is visible.
-                if let group = model.groups.first(where: { $0.files.contains(url) }), collapsed.contains(group.folder) {
-                    collapsed.remove(group.folder)
+                .contextMenu {
+                    Picker(selection: $style) {
+                        ForEach(ThumbnailStyle.allCases, id: \.self) { Text($0.title) }
+                    } label: { EmptyView() }
+                    .pickerStyle(.inline)
                 }
-                withAnimation { proxy.scrollTo(url, anchor: .center) }
+                .onChange(of: model.currentURL, initial: true) { _, url in
+                    guard let url else { return }
+                    // Arrows can walk into a folded group; open it so the shown photo is visible.
+                    if let group = model.groups.first(where: { $0.files.contains(url) }), collapsed.contains(group.folder) {
+                        collapsed.remove(group.folder)
+                    }
+                    withAnimation { proxy.scrollTo(url, anchor: .center) }
+                }
             }
+            .mask {
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 24)
+                }
+            }
+            // Like the + under Mail's mailboxes: adds another folder to the panel.
+            HStack {
+                Button {
+                    if let url = AppDelegate.runOpenPanel() { model.add(url) }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .regular))
+                }
+                .buttonStyle(RoundButtonStyle())
+                .help(L("Add Folder…") + " (⇧⌘O)")
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
         }
-        .frame(minWidth: 150)
+        .frame(minWidth: 200)
     }
 
     // Drawn by hand: the system list's selection is inset and came out narrower than the panel.
@@ -191,8 +221,8 @@ struct ThumbnailList: View {
                     Thumbnail(url: url, side: 220, revision: model.revision)
                     if style == .imagesAndNames { name.font(.caption) }
                 }
-                .padding(.vertical, style == .images ? 6 : 8)
-                .padding(.horizontal, 6)
+                .padding(.vertical, style == .images ? 10 : 12)
+                .padding(.horizontal, 12)
             }
         }
         .frame(maxWidth: .infinity)
@@ -207,27 +237,87 @@ struct ThumbnailList: View {
 }
 
 // The window title: the photo's name, and under it the folder path, faint except for the folder itself.
+// Each level of the path opens that folder; an empty folder shows its own name over its parent's path.
 struct TitleView: View {
     @ObservedObject var model: ViewerModel
 
     var body: some View {
         if let url = model.currentURL {
-            let folder = url.deletingLastPathComponent()
-            let parent = (folder.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
-            VStack(alignment: .leading, spacing: 1) {
-                Text(url.lastPathComponent)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text("\(Text(parent == "/" ? "/" : parent + "/").foregroundStyle(.tertiary))\(Text(folder.lastPathComponent).foregroundStyle(.secondary))")
-                    .font(.caption)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-            }
-            .help(url.path)
+            title(url.lastPathComponent, path: url.deletingLastPathComponent())
+                .help(url.path)
+        } else if let folder = model.groups.first?.folder {
+            title(folder.lastPathComponent, path: folder.deletingLastPathComponent())
+                .help(folder.path)
         } else {
-            Text("Hortai").font(.headline)
+            Text("Hortai").font(.headline).padding(.leading, ImageScrollView.sideMargin)
         }
+    }
+
+    private func title(_ name: String, path: URL) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(name)
+                .font(.headline)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            PathLine(levels: Self.levels(of: path)) { model.jump(to: $0) }
+        }
+        .frame(minWidth: 60, alignment: .leading)
+        // Lines up with the photo's left edge instead of hugging the sidebar; next to back and forward it sits
+        // as close as Finder's title does.
+        .padding(.leading, model.hasJumped ? 3 : ImageScrollView.sideMargin)
+    }
+
+    // ~/Pictures/From Orbit as [~, Pictures, From Orbit], each with the folder it stands for.
+    private static func levels(of folder: URL) -> [(name: String, url: URL)] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        var url = folder.standardizedFileURL
+        var levels: [(name: String, url: URL)] = []
+        while true {
+            if url.path == home { levels.append(("~", url)); break }
+            if url.path == "/" { levels.append(("/", url)); break }
+            levels.append((url.lastPathComponent, url))
+            url = url.deletingLastPathComponent()
+        }
+        return levels.reversed()
+    }
+}
+
+private struct PathLine: View {
+    let levels: [(name: String, url: URL)]
+    let open: (URL) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
+                // The root is itself the slash, so nothing goes between it and the next level.
+                if index > 0, levels[index - 1].name != "/" {
+                    Text("/").foregroundStyle(.tertiary)
+                }
+                PathLevel(name: level.name, isLast: index == levels.count - 1) { open(level.url) }
+                    // When the path doesn't fit, the levels nearest the root give way first.
+                    .layoutPriority(Double(index))
+            }
+        }
+        .font(.caption)
+        .lineLimit(1)
+    }
+}
+
+private struct PathLevel: View {
+    let name: String
+    let isLast: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(name)
+                .underline(hovering)
+                .foregroundStyle(hovering ? AnyShapeStyle(.primary) : isLast ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+        }
+        .buttonStyle(.plain)
+        .pointerStyle(.link)
+        .onHover { hovering = $0 }
     }
 }
 
@@ -243,17 +333,25 @@ final class ViewerSplitController: NSSplitViewController {
 
     init(model: ViewerModel, info infoModel: InfoModel) {
         self.model = model
-        thumbnails = NSSplitViewItem(sidebarWithViewController: NSHostingController(rootView: ThumbnailList(model: model)))
+        thumbnails = NSSplitViewItem(sidebarWithViewController: Self.host(ThumbnailList(model: model)))
         thumbnails.isCollapsed = true
-        thumbnails.minimumThickness = 150
-        thumbnails.maximumThickness = 260
-        info = NSSplitViewItem(inspectorWithViewController: NSHostingController(rootView: InfoView(info: infoModel)))
+        thumbnails.minimumThickness = 200
+        thumbnails.maximumThickness = 320
+        // A plain item, not an inspector: an inspector starts under an empty toolbar band; this one runs to the top edge.
+        let infoView = InfoView(info: infoModel).background { WindowGlass().ignoresSafeArea() }
+        info = NSSplitViewItem(viewController: Self.host(infoView))
+        info.canCollapse = true
         info.isCollapsed = true
+        // Below the priority of a dragged divider, so the panel can be resized by hand; above the photo, so it keeps its width when the window does.
+        info.holdingPriority = NSLayoutConstraint.Priority(260)
         info.minimumThickness = 260
-        info.maximumThickness = 420
+        // Wide enough for long camera and path values: up to a third of the screen.
+        info.maximumThickness = max(420, (NSScreen.main?.visibleFrame.width ?? 1440) / 3)
         super.init(nibName: nil, bundle: nil)
-        let viewer = NSSplitViewItem(viewController: NSHostingController(rootView: ViewerView(model: model, zoom: model.zoom)))
+        let viewer = NSSplitViewItem(viewController: Self.host(ViewerView(model: model, zoom: model.zoom)))
         viewer.minimumThickness = 360
+        // The floating sidebar sits over the viewer's background, not beside it; the photo stays clear of it.
+        viewer.automaticallyAdjustsSafeAreaInsets = true
         splitViewItems = [thumbnails, viewer, info]
         // Thumbnails need an open folder, even an empty one; info needs a photo.
         watch = model.$groups.map { !$0.isEmpty }.removeDuplicates()
@@ -262,6 +360,14 @@ final class ViewerSplitController: NSSplitViewController {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    // By default a hosting view pins its width to what its content would like, so a panel can't be dragged
+    // wider or narrower and only snaps open or shut. Only the minimum is passed on; the split view sets the rest.
+    private static func host<V: View>(_ view: V) -> NSHostingController<V> {
+        let controller = NSHostingController(rootView: view)
+        controller.sizingOptions = []
+        return controller
+    }
 
     private func showPanels(hasFolders: Bool, hasPhoto: Bool) {
         let defaults = UserDefaults.standard
@@ -290,5 +396,28 @@ final class ViewerSplitController: NSSplitViewController {
 
     var openPanelsWidth: CGFloat {
         [thumbnails, info].filter { !$0.isCollapsed }.reduce(0) { $0 + $1.viewController.view.frame.width }
+    }
+}
+
+// A round grey button, like the ? in System Settings (measured there: fill 8% black, glyph near black);
+// no hover change, as there; a shade stronger when pressed.
+private struct RoundButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RoundButton(configuration: configuration)
+    }
+
+    private struct RoundButton: View {
+        let configuration: ButtonStyleConfiguration
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            // Plain colours: .primary on the sidebar's glass turns vibrant and the circle all but vanished.
+            let ink: Color = scheme == .dark ? .white : .black
+            configuration.label
+                .foregroundStyle(ink.opacity(0.9))
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(ink.opacity(configuration.isPressed ? 0.18 : 0.08)))
+                .contentShape(Circle())
+        }
     }
 }

@@ -160,13 +160,92 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     }
 
     private static let infoItem = NSToolbarItem.Identifier("info")
+
+    // The left panel's button mirrored, with an "i" where its three lines are: it opens the info panel on the right.
+    // Mirroring the left symbol (not using sidebar.right) keeps both frames identical; the cleared box is measured
+    // around the lines, clear of the frame and the divider.
+    private static let infoSidebarImage: NSImage = {
+        // Toolbar buttons draw symbols at the large scale; a plain image has to be made at it.
+        let left = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: nil)!
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .medium, scale: .large))!
+        let image = NSImage(size: left.size, flipped: false) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return true }
+            ctx.saveGState()
+            ctx.translateBy(x: r.width, y: 0)
+            ctx.scaleBy(x: -1, y: 1)
+            left.draw(in: r)
+            ctx.restoreGState()
+            ctx.setBlendMode(.clear)
+            ctx.fill(CGRect(x: r.width * 0.68, y: r.height * 0.41, width: r.width * 0.16, height: r.height * 0.35))
+            ctx.setBlendMode(.normal)
+            NSColor.black.set()
+            // Centred on the frame's middle; the system's three lines sit higher, which looked off for an "i".
+            let mid = r.width * 0.757, line = r.height * 0.078, dot = r.height * 0.095
+            NSBezierPath(ovalIn: CGRect(x: mid - dot / 2, y: r.height * 0.675 - dot / 2, width: dot, height: dot)).fill()
+            let stem = NSBezierPath()
+            stem.move(to: CGPoint(x: mid, y: r.height * 0.32))
+            stem.line(to: CGPoint(x: mid, y: r.height * 0.56))
+            stem.lineWidth = line
+            stem.lineCapStyle = .round
+            stem.stroke()
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = L("Get Info")
+        return image
+    }()
     private static let titleItem = NSToolbarItem.Identifier("title")
+    private static let historyItem = NSToolbarItem.Identifier("history")
+    private var titleHost: NSHostingController<TitleView>?
+    private weak var titleItemRef: NSToolbarItem?
+    private var titleWatch: AnyCancellable?
+    private var idealTitleWidth: CGFloat {
+        ceil(titleHost?.sizeThatFits(in: CGSize(width: CGFloat.infinity, height: 30)).width ?? 120)
+    }
+    private var historyItem: NSToolbarItem?
+    private var historyControl: HistoryControl?
+    private var historyWatch: AnyCancellable?
+
+    private func updateHistory(back: [ViewerModel.Place], forward: [ViewerModel.Place], shown: Bool) {
+        historyItem?.isHidden = !shown
+        guard let control = historyControl else { return }
+        control.setEnabled(!back.isEmpty, forSegment: 0)
+        control.setEnabled(!forward.isEmpty, forSegment: 1)
+        control.setMenu(historyMenu(back, action: #selector(goBackTo(_:))), forSegment: 0)
+        control.setMenu(historyMenu(forward, action: #selector(goForwardTo(_:))), forSegment: 1)
+    }
+
+    // Nearest place first, as in Finder; the tag is how many steps away it is.
+    private func historyMenu(_ places: [ViewerModel.Place], action: Selector) -> NSMenu? {
+        guard !places.isEmpty else { return nil }
+        let menu = NSMenu()
+        for (steps, place) in places.reversed().enumerated() {
+            guard let folder = place.folder else { continue }
+            let item = NSMenuItem(title: FileManager.default.displayName(atPath: folder.path), action: action, keyEquivalent: "")
+            item.tag = steps + 1
+            item.target = self
+            let icon = NSWorkspace.shared.icon(forFile: folder.path)
+            icon.size = NSSize(width: 16, height: 16)
+            item.image = icon
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func historyClicked(_ sender: NSSegmentedControl) {
+        if sender.selectedSegment == 0 { model.goBack() } else { model.goForward() }
+    }
+
+    @objc private func goBackTo(_ sender: NSMenuItem) { model.goBack(sender.tag) }
+    @objc private func goForwardTo(_ sender: NSMenuItem) { model.goForward(sender.tag) }
     private static let thumbnailsItem = NSToolbarItem.Identifier("thumbnails")
     private var sidebarButton: NSButton?
+    private var infoButton: NSButton?
+    private var infoWatch: AnyCancellable?
     private var watch: AnyCancellable?
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.thumbnailsItem, .sidebarTrackingSeparator, Self.titleItem, .flexibleSpace, Self.infoItem, .inspectorTrackingSeparator]
+        [Self.thumbnailsItem, .sidebarTrackingSeparator, Self.historyItem, Self.titleItem, .flexibleSpace, Self.infoItem]
     }
 
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
@@ -201,21 +280,72 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
             item.label = L("Show Sidebar")
             return item
         }
+        if id == Self.historyItem {
+            // Finder's pair: one capsule, back and forward; hidden until the first click on the title's path.
+            // Holding or right-clicking an arrow lists the places behind it.
+            let control = HistoryControl(images: [
+                NSImage(systemSymbolName: "chevron.left", accessibilityDescription: L("Back"))!,
+                NSImage(systemSymbolName: "chevron.right", accessibilityDescription: L("Forward"))!,
+            ], trackingMode: .momentary, target: self, action: #selector(historyClicked(_:)))
+            control.setToolTip(L("Back"), forSegment: 0)
+            control.setToolTip(L("Forward"), forSegment: 1)
+            control.setShowsMenuIndicator(false, forSegment: 0)
+            control.setShowsMenuIndicator(false, forSegment: 1)
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.view = control
+            item.label = L("Back")
+            item.isHidden = !model.hasJumped
+            historyItem = item
+            historyControl = control
+            historyWatch = model.$backList.combineLatest(model.$forwardList, model.$hasJumped)
+                .sink { [weak self] back, forward, shown in self?.updateHistory(back: back, forward: forward, shown: shown) }
+            return item
+        }
         if id == Self.titleItem {
             let item = NSToolbarItem(itemIdentifier: id)
-            item.view = NSHostingView(rootView: TitleView(model: model))
+            // The title gives way when the toolbar is tight, like a search field; sized by SwiftUI, a long name
+            // pushed it and the info button into the toolbar's » menu. minSize/maxSize are deprecated, but the
+            // toolbar ignored a low-priority width constraint and still overflowed; these it honours.
+            let titleHost = NSHostingController(rootView: TitleView(model: model))
+            titleHost.sizingOptions = []
+            self.titleHost = titleHost
+            item.view = titleHost.view
+            item.minSize = NSSize(width: 60, height: 30)
+            item.maxSize = NSSize(width: idealTitleWidth, height: 30)
+            titleItemRef = item
+            titleWatch = model.$currentURL.combineLatest(model.$groups).sink { [weak self] _, _ in
+                // After the model has published the new name.
+                DispatchQueue.main.async {
+                    guard let self, let item = self.titleItemRef else { return }
+                    item.maxSize = NSSize(width: max(60, self.idealTitleWidth), height: 30)
+                }
+            }
             item.isBordered = false
             return item
         }
         guard id == Self.infoItem else { return nil }
+        // A button like the left panel's, so both come out the same size.
+        let button = NSButton(image: Self.infoSidebarImage, target: self, action: #selector(showInfo(_:)))
+        button.bezelStyle = .toolbar
+        button.toolTip = L("Get Info") + " (⌘I)"
+        button.isEnabled = model.currentURL != nil
+        infoButton = button
+        infoWatch = model.$currentURL.sink { [weak self] url in self?.infoButton?.isEnabled = url != nil }
         let item = NSToolbarItem(itemIdentifier: id)
-        item.image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: L("Get Info"))
+        item.view = button
         item.label = L("Get Info")
-        item.toolTip = L("Get Info") + " (⌘I)"
-        item.action = #selector(showInfo(_:))
-        item.target = self
         return item
     }
 
     @objc func copyPath(_ sender: Any?) { model.copyPath() }
+}
+
+// Back and forward in one capsule. A long press shows a segment's menu by itself; a right-click does here too,
+// for the arrow under the pointer, instead of the toolbar's own menu.
+final class HistoryControl: NSSegmentedControl {
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let x = convert(event.locationInWindow, from: nil).x
+        let segment = x < bounds.midX ? 0 : 1
+        return isEnabled(forSegment: segment) ? menu(forSegment: segment) : nil
+    }
 }

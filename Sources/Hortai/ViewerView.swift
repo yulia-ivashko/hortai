@@ -86,7 +86,9 @@ struct ControlBar: View {
                     BarDivider()
                     BarButton(
                         symbol: "1.magnifyingglass",
-                        help: zoom.isFit ? (zoom.isSmall ? "Fill Window" : "Actual Size (⌘0)") : "Fit to Window (⌘9)"
+                        help: zoom.isActualSize
+                            ? (zoom.isFit && zoom.isSmall ? "Fill Window" : "Fit to Window (⌘9)")
+                            : "Actual Size (⌘0)"
                     ) {
                         zoom.toggleSize()
                     }
@@ -160,11 +162,26 @@ private struct ToolTip: NSViewRepresentable {
     let text: String
 
     func makeNSView(context: Context) -> PassThroughView { PassThroughView() }
-    func updateNSView(_ view: PassThroughView, context: Context) { view.toolTip = text }
+    func updateNSView(_ view: PassThroughView, context: Context) { view.text = text }
 
+    // Asked for its text each time the tip is about to show, so a button whose action changed
+    // after a click never shows the old wording.
     final class PassThroughView: NSView {
+        var text = ""
+        private var tipTag: NSView.ToolTipTag?
+
         // Clicks go to the button underneath.
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func layout() {
+            super.layout()
+            if let tipTag { removeToolTip(tipTag) }
+            tipTag = addToolTip(bounds, owner: self, userData: nil)
+        }
+
+        @objc func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint, userData: UnsafeMutableRawPointer?) -> String {
+            text
+        }
     }
 }
 
