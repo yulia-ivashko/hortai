@@ -56,7 +56,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         onClose?()
     }
 
-    // Plain keys the Windows viewer answered to; menu shortcuts handle the rest.
+    // Plain keys: arrows, Home, End, Backspace and Esc; menu shortcuts handle the rest.
     func handleKey(_ event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
         // While a name is being typed, Backspace, arrows and Esc belong to the text.
