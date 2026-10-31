@@ -25,18 +25,15 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
 
         window.delegate = self
         split = ViewerSplitController(model: model, info: info)
-        // The same glass under the whole window: the photo's glass reaches under the left panel by itself, not
+        // One solid background under the whole window: the photo's reaches under the left panel by itself, not
         // under the right one, and the window's plain white showed round it.
-        let glass = NSVisualEffectView()
-        glass.material = .sidebar
-        glass.blendingMode = .behindWindow
-        glass.state = .followsWindowActiveState
+        let backdrop = SolidBackground()
         let container = NSViewController()
-        container.view = glass
+        container.view = backdrop
         container.addChild(split)
-        split.view.frame = glass.bounds
+        split.view.frame = backdrop.bounds
         split.view.autoresizingMask = [.width, .height]
-        glass.addSubview(split.view)
+        backdrop.addSubview(split.view)
         window.contentViewController = container
         let toolbar = NSToolbar(identifier: "HortaiViewer")
         toolbar.delegate = self
@@ -366,5 +363,20 @@ final class HistoryControl: NSSegmentedControl {
         let x = convert(event.locationInWindow, from: nil).x
         let segment = x < bounds.midX ? 0 : 1
         return isEnabled(forSegment: segment) ? menu(forSegment: segment) : nil
+    }
+}
+
+// The window's background, redrawn when the Mac switches between light and dark.
+final class SolidBackground: NSView {
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() { layer?.backgroundColor = NSColor.backdrop.cgColor }
+}
+
+extension NSColor {
+    // Opaque, in the light grey the see-through glass showed (measured); the panels stand out from it in both themes.
+    static let backdrop = NSColor(name: "HortaiBackdrop") { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 40 / 255, green: 40 / 255, blue: 42 / 255, alpha: 1)
+            : NSColor(srgbRed: 231 / 255, green: 230 / 255, blue: 229 / 255, alpha: 1)
     }
 }

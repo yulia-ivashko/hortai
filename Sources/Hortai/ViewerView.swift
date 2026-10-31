@@ -35,7 +35,8 @@ struct ViewerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Measured: the info card starts 8 pt past the end of this pane.
         .padding(.trailing, model.infoPanelOpen ? -8 : 0)
-        .background { WindowGlass().ignoresSafeArea() }
+        // Solid, not see-through: the desktop no longer shows round the photo.
+        .background { Color(nsColor: .backdrop).ignoresSafeArea() }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             guard let provider = providers.first else { return false }
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
@@ -59,19 +60,6 @@ struct ViewerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-}
-
-// Behind-window glass, like Quick Look: what's left of the window around the photo shows the desktop, blurred.
-struct WindowGlass: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .sidebar
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 // Finder-style toolbar groups: zoom out, size, zoom in, fit to screen | previous, slideshow, next | rotate | delete.
