@@ -81,7 +81,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         case #selector(openWith(_:)):
             return true
         case #selector(showNext(_:)), #selector(showPrevious(_:)), #selector(showInFinder(_:)), #selector(moveToTrash(_:)),
-             #selector(showInfo(_:)), #selector(copyPath(_:)):
+             #selector(showInfo(_:)), #selector(copyPath(_:)), #selector(openInPreview(_:)):
             return model.currentURL != nil
         default:
             return model.image != nil
@@ -103,6 +103,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
     @objc func copy(_ sender: Any?) { model.copyToPasteboard() }
     @objc func printPhoto(_ sender: Any?) { model.printPhoto() }
     @objc func setAsWallpaper(_ sender: Any?) { model.setAsWallpaper() }
+    // For what Hortai leaves to Preview: signing, marking up, small edits.
+    @objc func openInPreview(_ sender: Any?) {
+        if let preview = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Preview") { model.open(with: preview) }
+    }
     @objc func openWith(_ sender: NSMenuItem) {
         if let app = sender.representedObject as? URL { model.open(with: app) }
     }
@@ -128,6 +132,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         let menu = NSMenu()
         let items: [NSMenuItem] = [
             openWith,
+            NSMenuItem("Open in Preview", #selector(openInPreview(_:)), symbol: "pencil.tip.crop.circle", modifiers: []),
             NSMenuItem("Show in Finder", #selector(showInFinder(_:)), symbol: "finder", modifiers: []),
             NSMenuItem("Get Info", #selector(showInfo(_:)), symbol: "info.circle", modifiers: []),
             .separator(),
@@ -195,6 +200,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate, NSMenu
         return image
     }()
     private static let titleItem = NSToolbarItem.Identifier("title")
+
     private static let historyItem = NSToolbarItem.Identifier("history")
     private var titleHost: NSHostingController<TitleView>?
     private weak var titleItemRef: NSToolbarItem?
