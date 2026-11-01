@@ -1,23 +1,88 @@
 {
   "fill-specializations": [
-    { "value": { "automatic-gradient": "srgb:0.93000,0.93000,0.94000,1.00000" } },
-    { "appearance": "dark", "value": { "solid": "srgb:0.13000,0.13000,0.14000,1.00000" } }
+    {
+      "value": {
+        "automatic-gradient": "srgb:0.97000,0.97000,0.98000,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.13000,0.13000,0.14000,1.00000"
+      }
+    }
   ],
   "groups": [
     {
       "layers": [
-        { "image-name": "lens.png", "name": "lens", "glass-specializations": [ { "value": false } ] }
+        {
+          "image-name": "art.png",
+          "name": "art",
+          "glass": false
+        }
       ],
-      "shadow": { "kind": "neutral", "opacity": 0.4 },
-      "translucency": { "enabled": false, "value": 0 }
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
     },
     {
       "layers": [
-        { "image-name": "ring.png", "name": "ring", "glass-specializations": [ { "value": false } ] }
+        {
+          "image-name": "front.png",
+          "name": "front",
+          "glass": true
+        }
       ],
-      "shadow": { "kind": "neutral", "opacity": 0.5 },
-      "translucency": { "enabled": false, "value": 0 }
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "mid.png",
+          "name": "mid",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    },
+    {
+      "layers": [
+        {
+          "image-name": "back.png",
+          "name": "back",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
     }
   ],
-  "supported-platforms": { "squares": "shared" }
+  "supported-platforms": {
+    "squares": "shared"
+  }
 }
